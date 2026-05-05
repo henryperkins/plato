@@ -4,8 +4,10 @@ import {
   db,
   authenticate,
   requireAdmin,
+  getUserMeta,
   getUserMetaWithVersion,
   putUserMetaConditional,
+  deleteUserMeta,
   emitSecret,
   hostLogger,
 } from '../../../src/lib/plugins/sdk.js';
@@ -825,4 +827,15 @@ export function createRoutes({
 
 export default {
   routes: createRoutes(),
+  async onUninstall(ctx) {
+    const users = await db.listAllUsers();
+    let deleted = 0;
+    for (const user of users) {
+      const existing = await getUserMeta(user.userId, PLUGIN_ID);
+      if (!existing) continue;
+      await deleteUserMeta(user.userId, PLUGIN_ID);
+      deleted += 1;
+    }
+    ctx.logger.info('data_uninstalled', { recordsRemoved: deleted });
+  },
 };

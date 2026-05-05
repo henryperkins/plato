@@ -33,9 +33,14 @@ function fakeSyncStore() {
     store.set(k, next);
     return next;
   };
+  const deleteSyncData = async (userId, dataKey) => {
+    store.delete(key(userId, dataKey));
+    return { ok: true };
+  };
   return {
     getSyncData,
     putSyncData,
+    deleteSyncData,
     getAllSyncData: async (userId) => [...store.entries()]
       .filter(([k]) => k.startsWith(`${userId}\0`))
       .map(([k, value]) => ({ dataKey: k.split('\0')[1], ...value })),
@@ -74,6 +79,8 @@ describe('OpenRouter rewards routes', () => {
       getSyncData: db.getSyncData,
       putSyncData: db.putSyncData,
       getAllSyncData: db.getAllSyncData,
+      deleteSyncData: db.deleteSyncData,
+      listAllUsers: db.listAllUsers,
     };
     store = fakeSyncStore();
     store.set('_system', 'plugins:activation', {
@@ -96,6 +103,12 @@ describe('OpenRouter rewards routes', () => {
     db.getSyncData = store.getSyncData;
     db.putSyncData = store.putSyncData;
     db.getAllSyncData = store.getAllSyncData;
+    db.deleteSyncData = store.deleteSyncData;
+    db.listAllUsers = async () => [
+      { userId: 'usr_user' },
+      { userId: 'usr_other' },
+      { userId: 'usr_empty' },
+    ];
     openrouter = {
       calls: [],
       getKey: async () => ({ hash: 'hash_1', limit: 10, usage: 1, limit_remaining: 9 }),
@@ -124,6 +137,8 @@ describe('OpenRouter rewards routes', () => {
     db.getSyncData = realDb.getSyncData;
     db.putSyncData = realDb.putSyncData;
     db.getAllSyncData = realDb.getAllSyncData;
+    db.deleteSyncData = realDb.deleteSyncData;
+    db.listAllUsers = realDb.listAllUsers;
   });
 
   function app() {
@@ -612,5 +627,21 @@ describe('OpenRouter rewards routes', () => {
     const persisted = store.read('usr_user', `userMeta:${PLUGIN_ID}`);
     assert.equal(persisted.keyHash, null);
     assert.equal(persisted.reissueReservation.newKeyHash, 'hash_new');
+  });
+
+  it('onUninstall deletes every OpenRouter rewards userMeta record only', async () => {
+    store.set('usr_user', `userMeta:${PLUGIN_ID}`, { ...emptyState(), keyHash: 'hash_1' });
+    store.set('usr_other', `userMeta:${PLUGIN_ID}`, { ...emptyState(), keyHash: 'hash_2' });
+    store.set('usr_other', 'userMeta:teacher-comments', { comments: [{ id: 'cm_1' }] });
+
+    const logs = [];
+    await openRouterPlugin.onUninstall({
+      logger: { info: (code, meta) => logs.push({ code, meta }) },
+    });
+
+    assert.equal(store.read('usr_user', `userMeta:${PLUGIN_ID}`), undefined);
+    assert.equal(store.read('usr_other', `userMeta:${PLUGIN_ID}`), undefined);
+    assert.deepEqual(store.read('usr_other', 'userMeta:teacher-comments'), { comments: [{ id: 'cm_1' }] });
+    assert.deepEqual(logs, [{ code: 'data_uninstalled', meta: { recordsRemoved: 2 } }]);
   });
 });
