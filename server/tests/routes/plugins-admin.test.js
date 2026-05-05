@@ -273,7 +273,17 @@ describe('GET /v1/plugins/extension-points', () => {
       'adminProfileFields',
       'adminSettingsPanel',
       'adminUserRowAction',
+      'learnerCompletionAfter',
+      'learnerHomeBanner',
+      'learnerProfileFields',
     ], 'slot inventory drifted from host render-points; sync me.js with the SDK SlotName union');
+  });
+
+  it('documents secret event capability patterns', async () => {
+    const app = new Hono();
+    app.route('/', me);
+    const data = await (await userReq(app, 'GET', '/v1/plugins/extension-points')).json();
+    assert.ok(data.capabilities.patterns.includes('secretEvent.receive.<PluginId>.<EventName>'));
   });
 
   it('requires auth', async () => {
@@ -281,6 +291,81 @@ describe('GET /v1/plugins/extension-points', () => {
     app.route('/', me);
     const res = await app.request('/v1/plugins/extension-points');
     assert.equal(res.status, 401);
+  });
+});
+
+describe('pluginRegistry.updateSettings writeOnly preservation', () => {
+  let realGetSyncData;
+  let realPutSyncData;
+
+  function activationStore(initialRecord) {
+    const store = new Map([
+      ['_system\0plugins:activation', { data: initialRecord, version: 1 }],
+    ]);
+    const key = (userId, dataKey) => `${userId}\0${dataKey}`;
+    return {
+      getSyncData: async (userId, dataKey) => store.get(key(userId, dataKey)) || null,
+      putSyncData: async (userId, dataKey, data, expectedVersion) => {
+        const k = key(userId, dataKey);
+        const cur = store.get(k);
+        const version = cur?.version || 0;
+        if (expectedVersion !== version) throw new Error('conflict');
+        const next = { data, version: version + 1 };
+        store.set(k, next);
+        return next;
+      },
+      readActivation: () => store.get('_system\0plugins:activation'),
+    };
+  }
+
+  beforeEach(() => {
+    realGetSyncData = db.getSyncData;
+    realPutSyncData = db.putSyncData;
+    pluginRegistry._reset();
+  });
+
+  afterEach(() => {
+    db.getSyncData = realGetSyncData;
+    db.putSyncData = realPutSyncData;
+    pluginRegistry._reset();
+  });
+
+  it('preserves omitted writeOnly fields while saving visible settings', async () => {
+    const store = activationStore({
+      slack: {
+        enabled: true,
+        settings: { botToken: 'xoxb-secret', workspaceName: 'OldSpace' },
+      },
+    });
+    db.getSyncData = store.getSyncData;
+    db.putSyncData = store.putSyncData;
+
+    await pluginRegistry.boot();
+    await pluginRegistry.updateSettings('slack', { workspaceName: 'NewSpace' });
+
+    assert.deepEqual(store.readActivation().data.slack.settings, {
+      botToken: 'xoxb-secret',
+      workspaceName: 'NewSpace',
+    });
+  });
+
+  it('allows writeOnly fields to be replaced or explicitly cleared', async () => {
+    const store = activationStore({
+      slack: {
+        enabled: true,
+        settings: { botToken: 'xoxb-secret', workspaceName: 'OldSpace' },
+      },
+    });
+    db.getSyncData = store.getSyncData;
+    db.putSyncData = store.putSyncData;
+
+    await pluginRegistry.boot();
+    await pluginRegistry.updateSettings('slack', { botToken: '', workspaceName: 'NewSpace' });
+
+    assert.deepEqual(store.readActivation().data.slack.settings, {
+      botToken: '',
+      workspaceName: 'NewSpace',
+    });
   });
 });
 

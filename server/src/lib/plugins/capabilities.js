@@ -25,10 +25,11 @@ export const STATIC_CAPABILITIES = Object.freeze([
   'syncData.namespace',
 ]);
 
-/** Pattern capabilities — `ui.slot.<slotName>` and `hook.<hookName>`. */
+/** Pattern capabilities — `ui.slot.<slotName>`, `hook.<hookName>`, and secret event receivers. */
 const PATTERN_CAPABILITIES = [
   /^ui\.slot\.[a-zA-Z][a-zA-Z0-9]*$/,
   /^hook\.[a-zA-Z][a-zA-Z0-9]*$/,
+  /^secretEvent\.receive\.[a-z][a-z0-9-]*\.[a-zA-Z][a-zA-Z0-9.:-]*$/,
 ];
 
 /** True iff `cap` is a recognized capability string. */
@@ -53,6 +54,9 @@ export function requiredCapabilities(manifest) {
   }
   if (Array.isArray(ep.hooks)) {
     for (const hook of ep.hooks) required.add(`hook.${hook}`);
+  }
+  if (Array.isArray(ep.secretEvents)) {
+    for (const item of ep.secretEvents) required.add(`secretEvent.receive.${item.event}`);
   }
   if (ep.syncDataNamespace) required.add('syncData.namespace');
 

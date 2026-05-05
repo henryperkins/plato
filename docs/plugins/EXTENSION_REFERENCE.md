@@ -42,16 +42,23 @@ Flat reference of every plato extension point. One section per surface; no nesti
 ### `learnerProfileFields`
 
 - **Capability:** `ui.slot.learnerProfileFields`
-- **Renders inside:** classroom Settings page
+- **Renders inside:** `client/src/pages/Settings.jsx` below the Learner Profile card
 - **Props:** `{ profile: LearnerProfile }`
-- **Phase:** 2
+- **Phase:** 1.3
 
 ### `learnerHomeBanner`
 
 - **Capability:** `ui.slot.learnerHomeBanner`
-- **Renders inside:** learner home, top of lesson list
+- **Renders inside:** `client/src/pages/LessonsList.jsx` below the Lessons heading
 - **Props:** `{}`
-- **Phase:** 2
+- **Phase:** 1.3
+
+### `learnerCompletionAfter`
+
+- **Capability:** `ui.slot.learnerCompletionAfter`
+- **Renders inside:** `client/src/pages/LessonChat.jsx` after the chat log when `lessonKB.status === 'completed'`
+- **Props:** `{ lessonId: string, lessonKB: object }`
+- **Phase:** 1.3
 
 ## Lifecycle methods
 
@@ -171,6 +178,19 @@ The hook bus is at `server/src/lib/plugins/hooks.js`. **Open by design** — any
 - **Phase:** 1.1
 - **Notes:** The user's `userMeta:*` records are auto-deleted by the cascade — plugins don't need to explicitly clean up. Subscribe to this hook only if you have side effects beyond plato (e.g., notify external systems, archive content).
 
+## Secret events
+
+Targeted secret events are in-process plugin-to-plugin calls for sensitive payloads. They are not the open hook bus.
+
+### `extensionPoints.secretEvents`
+
+- **Capability:** `secretEvent.receive.<plugin-id>.<event>`
+- **Manifest shape:** `{ "secretEvents": [{ "event": "openrouter-rewards.keyAwarded" }] }`
+- **Server export shape:** `export default { secretEvents: { async 'openrouter-rewards.keyAwarded'(payload, ctx) { ... } } }`
+- **Emit API:** `ctx.emitSecretTo('slack', 'openrouter-rewards.keyAwarded', payload)` or SDK `emitSecret(event, targetPluginId, payload)`
+- **Phase:** 1.3
+- **Gotchas:** only the target plugin id receives the payload, and only while that plugin is enabled. Handler errors are logged as `plugin_secret_event_failed` and do not prevent delivery to other handlers for the same target.
+
 ## Capabilities
 
 | Capability | Grants | Phase |
@@ -181,6 +201,7 @@ The hook bus is at `server/src/lib/plugins/hooks.js`. **Open by design** — any
 | `ui.slot.<SlotName>` | Register a component for slot `<SlotName>` | 1+ |
 | `ui.adminNav` | Add an admin sidebar link | 2 |
 | `hook.<HookName>` | Subscribe to lifecycle hook `<HookName>` | 2+ |
+| `secretEvent.receive.<plugin-id>.<event>` | Receive targeted secret event `<plugin-id>.<event>` | 1.3 |
 | `user.metadata.read` | Read `userMeta:<pluginId>` per user | 2 |
 | `user.metadata.write` | Write `userMeta:<pluginId>` per user | 2 |
 | `kpi` | Contribute admin KPIs | 2 |
@@ -203,7 +224,10 @@ A plugin using an extension point without declaring its capability fails registr
 | `WebClient` | `@slack/web-api` client (re-exported for the Slack plugin; third-party plugins should declare their own deps) |
 | `getUserMeta(userId, pluginId)` | Read the plugin's per-user record. Returns the stored object or `null`. Capability: `user.metadata.read`. Available since 1.1.0. |
 | `putUserMeta(userId, pluginId, data)` | Upsert the plugin's per-user record. `data` must be an object. Capability: `user.metadata.write`. Available since 1.1.0. |
+| `getUserMetaWithVersion(userId, pluginId)` | Read `{ data, version }` for optimistic writes. Capability: `user.metadata.read`. Available since 1.3.0. |
+| `putUserMetaConditional(userId, pluginId, data, expectedVersion)` | Conditionally write the plugin's per-user record. Rejects stale versions. Capability: `user.metadata.write`. Available since 1.3.0. |
 | `deleteUserMeta(userId, pluginId)` | Delete the plugin's per-user record. Capability: `user.metadata.write`. Available since 1.1.0. |
+| `emitSecret(event, targetPluginId, payload)` | Deliver a sensitive payload to one target plugin's manifest-declared secret handler. Available since 1.3.0. |
 
 **Per-user storage convention:** `userMeta:<pluginId>` is the canonical key
 shape. Each plugin gets one record per user.
@@ -247,7 +271,7 @@ Admin only. Body: `{ enabled: boolean }`. Toggles activation. Runs `onActivate`/
 
 ### `PUT /v1/admin/plugins/:id/settings`
 
-Admin only. Body: arbitrary settings object. Persists to `_system:plugins:activation.<id>.settings`.
+Admin only. Body: arbitrary settings object. Persists to `_system:plugins:activation.<id>.settings`. Omitted `writeOnly` settings are preserved from the existing settings record; explicitly sent values replace or clear them.
 
 ### `GET /v1/plugins`
 

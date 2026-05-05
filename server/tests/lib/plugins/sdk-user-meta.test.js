@@ -1,7 +1,13 @@
 import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import db from '../../../src/lib/db.js';
-import { getUserMeta, putUserMeta, deleteUserMeta } from '../../../src/lib/plugins/sdk.js';
+import {
+  getUserMeta,
+  putUserMeta,
+  deleteUserMeta,
+  getUserMetaWithVersion,
+  putUserMetaConditional,
+} from '../../../src/lib/plugins/sdk.js';
 
 function fakeUserSyncStore() {
   const store = new Map();
@@ -67,6 +73,20 @@ describe('plugin SDK — getUserMeta / putUserMeta / deleteUserMeta', () => {
     await putUserMeta('usr_x', 'demo', { count: 1 });
     await putUserMeta('usr_x', 'demo', { count: 2 });
     assert.deepEqual(await getUserMeta('usr_x', 'demo'), { count: 2 });
+  });
+
+  it('getUserMetaWithVersion returns data and version', async () => {
+    await putUserMeta('usr_x', 'demo', { count: 1 });
+    const out = await getUserMetaWithVersion('usr_x', 'demo');
+    assert.deepEqual(out, { data: { count: 1 }, version: 1 });
+  });
+
+  it('putUserMetaConditional rejects stale versions', async () => {
+    await putUserMeta('usr_x', 'demo', { count: 1 });
+    await assert.rejects(
+      () => putUserMetaConditional('usr_x', 'demo', { count: 2 }, 0),
+      /conflict|ConditionalCheckFailedException/
+    );
   });
 
   it('deleteUserMeta removes the record', async () => {

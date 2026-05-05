@@ -9,6 +9,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
   DialogDescription, DialogFooter,
 } from '@/components/ui/dialog';
+import { PluginSlot } from '@/lib/plugins/Slot.jsx';
 
 export default function LessonsList() {
   const { state } = useApp();
@@ -73,6 +74,7 @@ export default function LessonsList() {
   return (
     <div className="mx-auto max-w-lg p-4">
       <h2 className="text-xl font-semibold mb-4">Lessons</h2>
+      <PluginSlot name="learnerHomeBanner" />
       <ul className="space-y-3" role="list">
         {lessons.map((c, i) => (
           <LessonItem key={c.lessonId} index={i} onClick={() => navigate(`/lessons/${c.lessonId}`)}>

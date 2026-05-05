@@ -37,7 +37,9 @@ Phase 2. Declared early so plugins can target it as soon as it lands.
 ### `user.metadata.read`
 
 Allows reading `userMeta:<pluginId>` for any user via the SDK helper
-`getUserMeta(userId, pluginId)`. Available since Plugin API 1.1.0.
+`getUserMeta(userId, pluginId)`. `getUserMetaWithVersion(userId, pluginId)`
+returns `{ data, version }` for optimistic write flows. Available since
+Plugin API 1.1.0; the version-aware helper is available since 1.3.0.
 
 Phase 1.1+ (declarative; not yet runtime-enforced — same trust model as
 `server.routes`).
@@ -45,8 +47,10 @@ Phase 1.1+ (declarative; not yet runtime-enforced — same trust model as
 ### `user.metadata.write`
 
 Allows writing `userMeta:<pluginId>` for any user via
-`putUserMeta(userId, pluginId, data)` and `deleteUserMeta(userId, pluginId)`.
-Available since Plugin API 1.1.0.
+`putUserMeta(userId, pluginId, data)`,
+`putUserMetaConditional(userId, pluginId, data, expectedVersion)`, and
+`deleteUserMeta(userId, pluginId)`. Available since Plugin API 1.1.0; the
+conditional helper is available since 1.3.0.
 
 By design, `userMeta:*` records are admin-owned. Every learner-facing
 path that touches the user's own data excludes them — `/v1/sync` bulk GET
@@ -97,6 +101,21 @@ Lets the plugin subscribe to the named lifecycle hook. The hook must exist in `H
 Required for every entry in `extensionPoints.hooks`.
 
 **Note:** the hook bus is open at the implementation level — plugins can `emit()`/`on()` arbitrary names. The capability is required only for *declared core hooks*. Plugin-to-plugin events (convention: `<plugin-id>.<event>`) don't need a capability.
+
+### `secretEvent.receive.<PluginId>.<EventName>`
+
+Lets the plugin receive a targeted secret event declared in `extensionPoints.secretEvents`. Example:
+
+```json
+{
+  "capabilities": ["secretEvent.receive.openrouter-rewards.keyAwarded"],
+  "extensionPoints": {
+    "secretEvents": [{ "event": "openrouter-rewards.keyAwarded" }]
+  }
+}
+```
+
+Secret events are for sensitive in-process payloads that must not be broadcast on the open hook bus. Only the target plugin id receives the event, and only while enabled. Required for every entry in `extensionPoints.secretEvents`.
 
 ## What capabilities do NOT grant
 

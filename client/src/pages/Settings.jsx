@@ -4,6 +4,7 @@ import { useAuth } from '../contexts/AuthContext.jsx';
 import PasswordField from '../components/PasswordField.jsx';
 import {
   savePreferences,
+  getLearnerProfile,
   getLearnerProfileSummary,
   saveLearnerProfile, saveLearnerProfileSummary,
 } from '../../js/storage.js';
@@ -21,12 +22,14 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
   DialogDescription, DialogFooter,
 } from '@/components/ui/dialog';
+import { PluginSlot } from '@/lib/plugins/Slot.jsx';
 
 export default function Settings() {
   const { state, dispatch } = useApp();
   const { user, refreshUser } = useAuth();
   const [name, setName] = useState(user?.name || state.preferences?.name || '');
   const [username, setUsername] = useState(user?.username || '');
+  const [learnerProfile, setLearnerProfile] = useState(null);
   const [profileSummary, setProfileSummary] = useState('');
 
   const [newPassword, setNewPassword] = useState('');
@@ -39,6 +42,7 @@ export default function Settings() {
 
   useEffect(() => {
     (async () => {
+      setLearnerProfile(await getLearnerProfile());
       setProfileSummary(await getLearnerProfileSummary());
     })();
   }, []);
@@ -187,10 +191,13 @@ export default function Settings() {
         </CardContent>
       </Card>
 
+      <PluginSlot name="learnerProfileFields" context={{ profile: learnerProfile || {} }} />
+
       <ProfileFeedbackDialog
         open={feedbackOpen}
         onOpenChange={setFeedbackOpen}
         onDone={async () => {
+          setLearnerProfile(await getLearnerProfile());
           setProfileSummary(await getLearnerProfileSummary());
         }}
       />

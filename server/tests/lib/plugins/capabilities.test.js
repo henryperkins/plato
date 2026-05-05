@@ -17,6 +17,7 @@ describe('capabilities', () => {
   it('recognizes pattern capabilities', () => {
     assert.equal(isValidCapability('ui.slot.adminSettingsPanel'), true);
     assert.equal(isValidCapability('hook.userCreated'), true);
+    assert.equal(isValidCapability('secretEvent.receive.openrouter-rewards.keyAwarded'), true);
   });
 
   it('rejects unknown capabilities', () => {
@@ -32,12 +33,14 @@ describe('capabilities', () => {
         serverRoutes: 'server/index.js#default',
         slots: { adminSettingsPanel: 'client/X.jsx', adminUserRowAction: 'client/Y.jsx' },
         hooks: ['userCreated'],
+        secretEvents: [{ event: 'openrouter-rewards.keyAwarded' }],
       },
       settingsSchema: { type: 'object', properties: {} },
     };
     const required = requiredCapabilities(manifest).sort();
     assert.deepEqual(required, [
       'hook.userCreated',
+      'secretEvent.receive.openrouter-rewards.keyAwarded',
       'server.routes',
       'settings.read',
       'settings.write',

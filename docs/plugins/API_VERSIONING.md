@@ -5,12 +5,18 @@ Plato's plugin API is versioned with semver. The host declares a single `PLUGIN_
 ## Current host version
 
 ```
-PLUGIN_API_VERSION = '1.2.0'
+PLUGIN_API_VERSION = '1.3.0'
 ```
 
 Defined in `server/src/lib/plugins/version.js`.
 
 ## Changelog
+
+### 1.3.0 (additive)
+- **Added** learner UI slot render-points: `learnerProfileFields` in Settings, `learnerHomeBanner` at the top of the lesson list, and `learnerCompletionAfter` after a completed lesson in LessonChat.
+- **Added** targeted secret events via `extensionPoints.secretEvents`, `secretEvent.receive.<plugin-id>.<event>` capabilities, and `ctx.emitSecretTo(targetPluginId, event, payload)`. Use this for sensitive in-process payloads that must not be broadcast on the open hook bus.
+- **Added** SDK helpers `getUserMetaWithVersion(userId, pluginId)` and `putUserMetaConditional(userId, pluginId, data, expectedVersion)` for optimistic per-user plugin metadata writes.
+- **Changed** plugin settings saves to preserve omitted `writeOnly` settings. Sending a new write-only value replaces it; sending an empty string or `null` still explicitly clears it.
 
 ### 1.2.0 (additive)
 - **Added** `onUninstall(ctx)` lifecycle hook — optional. Runs when an admin uses the "Delete plugin data" flow on `/plato/plugins` and the plugin needs cleanup beyond its activation record (e.g., per-user `userMeta:<id>` records). The host clears the activation record (settings) automatically; plugins only implement `onUninstall` when they own data elsewhere. Plugin must be **disabled** first, and the admin must type the plugin id in a confirm dialog before the destructive button enables. Errors propagate so partial-cleanup failures are surfaced loudly.
@@ -88,6 +94,8 @@ When a slot/hook/capability is deprecated:
 | 1.0.0 | `"^1.1.0"` | ❌ — 1.0.0 doesn't satisfy ≥1.1.0 |
 | 1.2.0 | `"^1.0.0"` | ✅ |
 | 1.2.0 | `"~1.0.0"` | ❌ — `~1.0.0` requires 1.0.x |
+| 1.3.0 | `"^1.2.0"` | ✅ |
+| 1.3.0 | `"~1.2.0"` | ❌ — `~1.2.0` requires 1.2.x |
 | 2.0.0 | `"^1.0.0"` | ❌ — major mismatch |
 | 2.0.0 | `"^2.0.0"` | ✅ |
 | 2.0.0 | `"1.x"` | ❌ — major mismatch |

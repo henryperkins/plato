@@ -56,6 +56,21 @@
           "uniqueItems": true,
           "items": { "$ref": "#/$defs/hookName" }
         },
+        "secretEvents": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["event"],
+            "properties": {
+              "event": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9-]*\\.[a-zA-Z][a-zA-Z0-9.:-]*$"
+              }
+            }
+          }
+        },
         "syncDataNamespace": {
           "type": "string",
           "pattern": "^plugin:[a-z0-9-]+:[a-z0-9*-]+$"
@@ -80,7 +95,8 @@
           "syncData.namespace"
         ] },
         { "pattern": "^ui\\.slot\\.[a-zA-Z][a-zA-Z0-9]*$" },
-        { "pattern": "^hook\\.[a-zA-Z][a-zA-Z0-9]*$" }
+        { "pattern": "^hook\\.[a-zA-Z][a-zA-Z0-9]*$" },
+        { "pattern": "^secretEvent\\.receive\\.[a-z][a-z0-9-]*\\.[a-zA-Z][a-zA-Z0-9.:-]*$" }
       ]
     },
     "slotName": {
@@ -91,7 +107,8 @@
         "adminHomeKpi",
         "adminProfileFields",
         "learnerProfileFields",
-        "learnerHomeBanner"
+        "learnerHomeBanner",
+        "learnerCompletionAfter"
       ]
     },
     "hookName": {

@@ -49,10 +49,26 @@ export async function putUserMeta(userId, pluginId, data) {
   return dbDefault.putSyncData(userId, `userMeta:${pluginId}`, data, existing?.version || 0);
 }
 
+export async function getUserMetaWithVersion(userId, pluginId) {
+  if (!userId || !pluginId) throw new Error('userId and pluginId required');
+  const item = await dbDefault.getSyncData(userId, `userMeta:${pluginId}`);
+  return { data: item?.data || null, version: item?.version || 0 };
+}
+
+export async function putUserMetaConditional(userId, pluginId, data, expectedVersion) {
+  if (!userId || !pluginId) throw new Error('userId and pluginId required');
+  if (!data || typeof data !== 'object' || Array.isArray(data)) {
+    throw new Error('data must be an object');
+  }
+  return dbDefault.putSyncData(userId, `userMeta:${pluginId}`, data, expectedVersion ?? 0);
+}
+
 export async function deleteUserMeta(userId, pluginId) {
   if (!userId || !pluginId) throw new Error('userId and pluginId required');
   return dbDefault.deleteSyncData(userId, `userMeta:${pluginId}`);
 }
+
+export { emitSecret } from './secret-events.js';
 
 export { authenticate } from '../../middleware/authenticate.js';
 export { requireAdmin } from '../../middleware/requireAdmin.js';

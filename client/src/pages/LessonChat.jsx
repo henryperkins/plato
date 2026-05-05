@@ -24,6 +24,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
   DialogDescription, DialogFooter,
 } from '@/components/ui/dialog';
+import { PluginSlot } from '@/lib/plugins/Slot.jsx';
 
 export default function LessonChat() {
   const { lessonGroupId } = useParams();
@@ -360,6 +361,12 @@ export default function LessonChat() {
         {error && <div className="px-3 py-2 text-sm text-destructive" role="alert">{error}</div>}
       </ChatArea>
       </div>
+
+      {lessonKB?.status === 'completed' && (
+        <div className="mx-auto w-full max-w-5xl px-4 pb-3">
+          <PluginSlot name="learnerCompletionAfter" context={{ lessonId: lessonGroupId, lessonKB }} />
+        </div>
+      )}
 
       {/* Inline compose — always in document flow for layout; invisible when pinned */}
       {phase && (

@@ -23,6 +23,7 @@ import { logger } from '../logger.js';
 import { validateManifest } from './manifest.js';
 import { satisfies, PLUGIN_API_VERSION } from './version.js';
 import { on as hookOn, emit as hookEmit } from './hooks.js';
+import { onSecret, emitSecret as hookEmitSecret } from './secret-events.js';
 import { invokeOnActivate, invokeOnDeactivate, invokeOnUninstall } from './lifecycle.js';
 import { createPluginLogger } from './logger.js';
 
@@ -47,7 +48,7 @@ const ACTIVATION_KEY = 'plugins:activation';
 /** In-memory registry state. Reset by tests via _reset(). */
 const state = {
   pluginsDir: null,
-  // id -> { manifest, dir, serverModule|null, enabled, settings, loadError|null, hookUnsubs: Function[] }
+  // id -> { manifest, dir, serverModule|null, enabled, settings, loadError|null, hookUnsubs: Function[], secretUnsubs: Function[] }
   entries: new Map(),
   booted: false,
 };
@@ -107,6 +108,7 @@ function buildContext(id, settings) {
       await pluginRegistry.updateSettings(id, next);
     },
     emit: (event, payload) => hookEmit(event, payload),
+    emitSecretTo: (targetPluginId, event, payload) => hookEmitSecret(event, targetPluginId, payload),
   };
 }
 
@@ -126,6 +128,30 @@ function subscribeHooks(id, plugin) {
     subs.push(hookOn(event, wrapped, { pluginId: id }));
   }
   return subs;
+}
+
+function subscribeSecretEvents(id, plugin, manifest) {
+  const subs = [];
+  const events = manifest.extensionPoints?.secretEvents || [];
+  const handlers = plugin?.secretEvents || {};
+  for (const item of events) {
+    const eventName = item.event;
+    const fn = handlers[eventName];
+    if (typeof fn !== 'function') continue;
+    const wrapped = (payload) => {
+      const entry = state.entries.get(id);
+      if (!entry?.enabled) return;
+      return fn(payload, buildContext(id, entry.settings));
+    };
+    subs.push(onSecret(eventName, id, wrapped));
+  }
+  return subs;
+}
+
+function unsubscribeAll(unsubs) {
+  for (const unsub of unsubs || []) {
+    try { unsub(); } catch { /* noop */ }
+  }
 }
 
 async function dynamicImportServer(dir, manifest) {
@@ -176,6 +202,7 @@ export const pluginRegistry = {
             settings: {},
             loadError: result.errors.join('; '),
             hookUnsubs: [],
+            secretUnsubs: [],
           });
           continue;
         }
@@ -195,6 +222,7 @@ export const pluginRegistry = {
             settings: {},
             loadError: `apiVersion ${manifest.apiVersion} not satisfied by host ${PLUGIN_API_VERSION}`,
             hookUnsubs: [],
+            secretUnsubs: [],
           });
           continue;
         }
@@ -219,6 +247,7 @@ export const pluginRegistry = {
             settings,
             loadError: err?.message || String(err),
             hookUnsubs: [],
+            secretUnsubs: [],
           });
           continue;
         }
@@ -232,11 +261,13 @@ export const pluginRegistry = {
           hasStoredState,
           loadError: null,
           hookUnsubs: [],
+          secretUnsubs: [],
         };
         state.entries.set(manifest.id, entry);
 
         if (enabled) {
           entry.hookUnsubs = subscribeHooks(manifest.id, serverModule);
+          entry.secretUnsubs = subscribeSecretEvents(manifest.id, serverModule, manifest);
           await invokeOnActivate(serverModule, buildContext(manifest.id, settings));
         }
         logger.warn('plugin_loaded', { pluginId: manifest.id, enabled });
@@ -271,10 +302,13 @@ export const pluginRegistry = {
     entry.hasStoredState = true;
     if (enabled) {
       entry.hookUnsubs = subscribeHooks(id, entry.serverModule);
+      entry.secretUnsubs = subscribeSecretEvents(id, entry.serverModule, entry.manifest);
       await invokeOnActivate(entry.serverModule, buildContext(id, entry.settings));
     } else {
-      for (const unsub of entry.hookUnsubs) { try { unsub(); } catch { /* noop */ } }
+      unsubscribeAll(entry.hookUnsubs);
+      unsubscribeAll(entry.secretUnsubs);
       entry.hookUnsubs = [];
+      entry.secretUnsubs = [];
       await invokeOnDeactivate(entry.serverModule, buildContext(id, entry.settings));
     }
     return entry;
@@ -318,9 +352,17 @@ export const pluginRegistry = {
       throw new Error('settings must be an object');
     }
     const { record, version } = await readActivation();
-    record[id] = { ...(record[id] || {}), enabled: entry.enabled, settings: nextSettings };
+    const props = entry.manifest?.settingsSchema?.properties || {};
+    const currentSettings = record[id]?.settings || entry.settings || {};
+    const merged = { ...nextSettings };
+    for (const [key, schema] of Object.entries(props)) {
+      if (schema?.writeOnly && !(key in nextSettings) && key in currentSettings) {
+        merged[key] = currentSettings[key];
+      }
+    }
+    record[id] = { ...(record[id] || {}), enabled: entry.enabled, settings: merged };
     await writeActivation(record, version);
-    entry.settings = nextSettings;
+    entry.settings = merged;
     entry.hasStoredState = true;
     return entry;
   },

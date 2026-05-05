@@ -166,6 +166,9 @@ me.get('/v1/plugins/extension-points', (c) => {
       { name: 'adminSettingsPanel', capability: 'ui.slot.adminSettingsPanel', context: 'admin', props: { pluginId: 'string', settings: 'object', onSave: '(next) => Promise<void>' }, location: 'client/src/pages/admin/AdminPlugins.jsx', phase: '1' },
       { name: 'adminUserRowAction', capability: 'ui.slot.adminUserRowAction', context: 'admin', props: { user: 'AdminUser' }, location: 'client/src/pages/admin/AdminUsers.jsx', phase: '1.1' },
       { name: 'adminProfileFields', capability: 'ui.slot.adminProfileFields', context: 'admin', props: { user: 'AdminUser' }, location: 'client/src/pages/admin/AdminUsers.jsx (Edit User card)', phase: '1.1' },
+      { name: 'learnerProfileFields', capability: 'ui.slot.learnerProfileFields', context: 'learner', props: { profile: 'LearnerProfile' }, location: 'client/src/pages/Settings.jsx', phase: '1.3' },
+      { name: 'learnerHomeBanner', capability: 'ui.slot.learnerHomeBanner', context: 'learner', props: {}, location: 'client/src/pages/LessonsList.jsx', phase: '1.3' },
+      { name: 'learnerCompletionAfter', capability: 'ui.slot.learnerCompletionAfter', context: 'learner', props: { lessonId: 'string', lessonKB: 'object' }, location: 'client/src/pages/LessonChat.jsx', phase: '1.3' },
     ],
     hooks: {
       coreEmits: listEvents(),
@@ -182,7 +185,7 @@ me.get('/v1/plugins/extension-points', (c) => {
     },
     capabilities: {
       static: STATIC_CAPABILITIES,
-      patterns: ['ui.slot.<SlotName>', 'hook.<HookName>'],
+      patterns: ['ui.slot.<SlotName>', 'hook.<HookName>', 'secretEvent.receive.<PluginId>.<EventName>'],
     },
     docs: {
       authoring: 'docs/plugins/AUTHORING.md',

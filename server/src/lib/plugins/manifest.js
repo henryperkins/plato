@@ -20,6 +20,7 @@ const SLOT_NAMES = new Set([
   'adminProfileFields',
   'learnerProfileFields',
   'learnerHomeBanner',
+  'learnerCompletionAfter',
 ]);
 const HOOK_NAMES = new Set([
   'userCreated',
@@ -94,6 +95,19 @@ export function validateManifest(raw, { expectedId } = {}) {
       } else {
         for (const h of ep.hooks) {
           if (!HOOK_NAMES.has(h)) errors.push(`unknown hook: ${h}`);
+        }
+      }
+    }
+    if (ep.secretEvents !== undefined) {
+      if (!Array.isArray(ep.secretEvents)) {
+        errors.push('extensionPoints.secretEvents must be an array');
+      } else {
+        for (const item of ep.secretEvents) {
+          if (!item || typeof item !== 'object') {
+            errors.push('secretEvents entries must be objects');
+          } else if (typeof item.event !== 'string' || !item.event.includes('.')) {
+            errors.push('secretEvents entries require dotted event');
+          }
         }
       }
     }

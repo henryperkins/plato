@@ -63,6 +63,36 @@ describe('validateManifest', () => {
     assert.ok(r.errors.some((e) => e.includes('unknown slot name')));
   });
 
+  it('accepts learnerCompletionAfter slot manifests', () => {
+    const m = {
+      ...valid,
+      capabilities: ['ui.slot.learnerCompletionAfter'],
+      extensionPoints: { slots: { learnerCompletionAfter: 'client/Completion.jsx' } },
+    };
+    const r = validateManifest(m, { expectedId: 'demo' });
+    assert.equal(r.ok, true, r.errors?.join(', '));
+  });
+
+  it('requires secret event entries to be dotted event objects', () => {
+    const m = {
+      ...valid,
+      capabilities: ['secretEvent.receive.openrouter-rewards.keyAwarded'],
+      extensionPoints: {
+        secretEvents: [{ event: 'openrouter-rewards.keyAwarded' }],
+      },
+    };
+    const r = validateManifest(m, { expectedId: 'demo' });
+    assert.equal(r.ok, true, r.errors?.join(', '));
+
+    const bad = validateManifest({
+      ...valid,
+      capabilities: ['secretEvent.receive.openrouter-rewards.keyAwarded'],
+      extensionPoints: { secretEvents: [{ event: 'notdotted' }] },
+    }, { expectedId: 'demo' });
+    assert.equal(bad.ok, false);
+    assert.ok(bad.errors.some((e) => e.includes('secretEvents entries require dotted event')));
+  });
+
   it('rejects bad serverRoutes ref', () => {
     const m = { ...valid, extensionPoints: { serverRoutes: 'noprefix.js' } };
     const r = validateManifest(m, { expectedId: 'demo' });

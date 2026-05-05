@@ -57,6 +57,8 @@ export interface ExtensionPoints {
   slots?: Partial<Record<SlotName, string>>;
   /** Hooks the plugin subscribes to. */
   hooks?: HookName[];
+  /** Targeted secret events the plugin can receive. */
+  secretEvents?: { event: string }[];
   /** sync-data namespace (Phase 3+; declare for forward-compat). */
   syncDataNamespace?: string;
 }
@@ -70,6 +72,7 @@ export type Capability =
   | `ui.slot.${SlotName}`
   | 'ui.adminNav'
   | `hook.${HookName}`
+  | `secretEvent.receive.${string}`
   | 'user.metadata.read'
   | 'user.metadata.write'
   | 'kpi'
@@ -91,7 +94,8 @@ export type SlotName =
   | 'adminHomeKpi'
   | 'adminProfileFields'
   | 'learnerProfileFields'
-  | 'learnerHomeBanner';
+  | 'learnerHomeBanner'
+  | 'learnerCompletionAfter';
 
 // ---------- Hooks ----------
 
@@ -119,7 +123,11 @@ export interface HookContext {
   settings: Record<string, unknown>;
   /** Emit an event on the open hook bus. Use the convention `<plugin-id>.<event>`. */
   emit(event: string, payload: unknown): Promise<void>;
+  /** Emit a sensitive event only to one target plugin's manifest-declared handler. */
+  emitSecretTo(targetPluginId: string, event: string, payload: unknown): Promise<void>;
 }
+
+export type SecretEventHandler = (payload: unknown, ctx: HookContext) => void | Promise<void>;
 
 // ---------- Lifecycle ----------
 
@@ -129,6 +137,10 @@ export interface PluginLifecycleContext {
   /** Read/write access to the plugin's own settings record. */
   settings: Record<string, unknown>;
   setSettings(next: Record<string, unknown>): Promise<void>;
+  /** Emit an event on the open hook bus. Use the convention `<plugin-id>.<event>`. */
+  emit(event: string, payload: unknown): Promise<void>;
+  /** Emit a sensitive event only to one target plugin's manifest-declared handler. */
+  emitSecretTo(targetPluginId: string, event: string, payload: unknown): Promise<void>;
   /** Read-only views of host data. */
   db: PluginDbView;
 }
@@ -140,6 +152,8 @@ export interface ServerPluginExports {
   routes?: Hono;
   /** Subscribers to lifecycle events. Each handler receives a typed payload + context. */
   hooks?: Partial<Record<HookName, (payload: unknown, ctx: HookContext) => void | Promise<void>>>;
+  /** Manifest-declared handlers for targeted secret events. */
+  secretEvents?: Record<string, SecretEventHandler>;
   /** KPI definitions (Phase 2). */
   kpis?: KpiDefinition[];
   /** Called once when admin enables the plugin AND once at boot if already enabled. Idempotent. */
@@ -173,6 +187,7 @@ export interface SlotProps {
   adminProfileFields: { user: AdminUser };
   learnerProfileFields: { profile: LearnerProfile };
   learnerHomeBanner: Record<string, never>;
+  learnerCompletionAfter: { lessonId: string; lessonKB: unknown };
 }
 
 export interface SettingsPanelProps {
