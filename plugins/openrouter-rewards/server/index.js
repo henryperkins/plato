@@ -814,6 +814,9 @@ export function createRoutes({
   });
 
   routes.post('/admin/backfill', authenticate, requireAdmin, async (c) => {
+    // Backfill is a deliberately deferred worker surface. Keep the route stable
+    // for the admin UI/API contract, but do not mint keys or send delivery DMs
+    // from a synchronous request path.
     return c.json({ ok: true, queued: false });
   });
 

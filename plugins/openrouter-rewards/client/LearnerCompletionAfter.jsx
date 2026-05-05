@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { authenticatedFetch } from '../../../client/js/auth.js';
+import RevealKey from './RevealKey.jsx';
 
 export default function LearnerCompletionAfter({ lessonId }) {
   const checkedRef = useRef(null);
@@ -48,32 +48,14 @@ export default function LearnerCompletionAfter({ lessonId }) {
       <CardContent className="space-y-3">
         {result.status === 'processing' && <p className="text-sm">Reward is being prepared.</p>}
         {result.status === 'topped-up' && <p className="text-sm">Your OpenRouter key limit increased by ${result.addedCredit}.</p>}
-        {result.status === 'minted' && <RevealKey plaintext={result.plaintext} />}
+        {result.status === 'minted' && (
+          <RevealKey
+            plaintext={result.plaintext}
+            intro="Your OpenRouter API key is ready. Copy it now; it won't be shown again."
+          />
+        )}
         {error && <p className="text-sm text-destructive" role="alert">{error}</p>}
       </CardContent>
     </Card>
-  );
-}
-
-function RevealKey({ plaintext }) {
-  const [copied, setCopied] = useState(false);
-  return (
-    <div className="space-y-2">
-      <p className="text-sm">Your OpenRouter API key is ready. Copy it now — it won't be shown again.</p>
-      <code className="block break-all rounded bg-muted p-2 text-xs">{plaintext}</code>
-      <Button
-        variant="outline"
-        onClick={async () => {
-          try {
-            await navigator.clipboard.writeText(plaintext);
-            setCopied(true);
-          } catch {
-            // Clipboard write can fail in insecure contexts; the key is still visible on the page.
-          }
-        }}
-      >
-        {copied ? 'Copied' : 'Copy key'}
-      </Button>
-    </div>
   );
 }

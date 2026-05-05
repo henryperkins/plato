@@ -59,6 +59,7 @@ Flat reference of every plato extension point. One section per surface; no nesti
 - **Renders inside:** `client/src/pages/LessonChat.jsx` after the chat log when `lessonKB.status === 'completed'`
 - **Props:** `{ lessonId: string, lessonKB: object }`
 - **Phase:** 1.3
+- **Gotchas:** presentation-only. The slot renders only after the host's lesson engine has already marked the lesson completed; plugins must not trigger completion, alter pacing, or award progress.
 
 ## Lifecycle methods
 

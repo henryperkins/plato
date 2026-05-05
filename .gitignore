@@ -11,6 +11,11 @@ server/client-content/
 .github/workflows/deploy-playground.yml
 .DS_Store
 
+# Local Codex/Playwright inspection artifacts.
+.playwright-mcp/
+AGENTS.md
+key-wrap-mobile.png
+
 # Generated at deploy time from the latest Beta-RC-* tag.
 # See .github/workflows/version-bump.yml (tag creation) and the private
 # deploy fork's deploy.yml (version.json generation).

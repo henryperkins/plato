@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { authenticatedFetch } from '../../../client/js/auth.js';
+import RevealKey from './RevealKey.jsx';
 
 export default function LearnerProfileFields() {
   const [status, setStatus] = useState(null);
@@ -110,10 +111,7 @@ export default function LearnerProfileFields() {
           <Button variant="outline" onClick={reissue} disabled={busy}>{busy ? 'Reissuing…' : 'Reissue key'}</Button>
         )}
         {message?.type === 'success' && message.plaintext && (
-          <>
-            <p className="text-sm">Copy this key now — it won't be shown again.</p>
-            <code className="block break-all rounded bg-muted p-2 text-xs">{message.plaintext}</code>
-          </>
+          <RevealKey plaintext={message.plaintext} />
         )}
         {message?.type === 'success' && !message.plaintext && message.text && (
           <p className="text-sm" role="status">{message.text}</p>
