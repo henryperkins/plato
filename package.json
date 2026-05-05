@@ -10,7 +10,8 @@
     "dev:server": "cd server && npm run dev:sqlite",
     "test:client": "cd client && npm test",
     "test:server": "cd server && npm test",
-    "test": "npm run test:client && npm run test:server",
+    "test:plugins": "node --test $(find plugins -name '*.test.js' | sort)",
+    "test": "npm run test:client && npm run test:server && npm run test:plugins",
     "deploy": "npm run build && cd server && sam deploy"
   }
 }
