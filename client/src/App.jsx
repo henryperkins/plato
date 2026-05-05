@@ -5,6 +5,11 @@ import AppShell from './components/AppShell.jsx';
 import LessonsList from './pages/LessonsList.jsx';
 import LessonChat from './pages/LessonChat.jsx';
 import Settings from './pages/Settings.jsx';
+// TODO(plugin-contract): formalize plugin-owned routes via a `clientRoutes` extension
+// point in plugin.schema.json + the SDK so host code doesn't have to import plugin
+// pages directly. Until then, this single route is the dedicated OAuth callback owner
+// for openrouter-rewards (separate route fixes the PluginSlot mount-timing race).
+import OpenRouterCallback from '../../plugins/openrouter-rewards/client/OpenRouterCallback.jsx';
 import Login from './pages/Login.jsx';
 import Signup from './pages/Signup.jsx';
 import Setup from './pages/Setup.jsx';
@@ -127,6 +132,7 @@ export default function App() {
                 <Route path="/lessons/create" element={<Navigate to="/lessons" replace />} />
                 <Route path="/lessons/:lessonGroupId" element={<LessonChat />} />
                 <Route path="/settings" element={<Settings />} />
+                <Route path="/openrouter-callback" element={<OpenRouterCallback />} />
                 <Route path="/" element={<Navigate to="/lessons" replace />} />
                 <Route path="*" element={<Navigate to="/lessons" replace />} />
               </Routes>

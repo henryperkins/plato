@@ -2,6 +2,7 @@ import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { Hono } from '../../../server/src/lib/plugins/sdk.js';
 import db from '../../../server/src/lib/db.js';
+import logger from '../../../server/src/lib/logger.js';
 import { signAccessToken } from '../../../server/src/lib/jwt.js';
 import openRouterPlugin, { createRoutes } from './index.js';
 import { emptyState } from './state.js';
@@ -177,5 +178,40 @@ describe('OpenRouter rewards routes', () => {
     });
 
     assert.equal(res.status, 400);
+  });
+
+  it('logs openrouter_claim_failed with non-secret context when /claim errors', async () => {
+    logger._reset();
+    store.set('usr_user', `userMeta:${PLUGIN_ID}`, {
+      ...emptyState(),
+      pendingClaim: {
+        ruleIds: ['rule-1'],
+        reservationIds: ['res-1'],
+        accumulatedAmount: 5,
+        qualifiedAt: '2026-05-05T12:00:00.000Z',
+        claimFingerprint: 'sha256:claim',
+      },
+    });
+
+    // No oauthSession was created, so /claim's consumeOauthSession will throw.
+    const res = await userReq(app(), 'POST', '/claim', {
+      code: 'auth-code',
+      state: 'unknown-state',
+      codeVerifier: 'verifier-1',
+    });
+
+    assert.equal(res.status, 400);
+    const entries = logger.recent({ level: 'error' });
+    const failed = entries.find((e) => e.code === 'openrouter_claim_failed');
+    assert.ok(failed, 'expected openrouter_claim_failed log entry');
+    assert.equal(failed.meta.userId, 'usr_user');
+    assert.equal(failed.meta.hasCode, true);
+    assert.equal(failed.meta.hasState, true);
+    assert.equal(failed.meta.hasVerifier, true);
+    assert.equal(typeof failed.meta.error, 'string');
+    // Must not log the actual secrets.
+    const serialized = JSON.stringify(failed.meta);
+    assert.ok(!serialized.includes('auth-code'), 'log meta must not include the OAuth code');
+    assert.ok(!serialized.includes('verifier-1'), 'log meta must not include the PKCE verifier');
   });
 });

@@ -293,6 +293,14 @@ export function createRoutes({
       }
       return c.json({ status: 'minted', plaintext: minted.plaintext, lifetimeAwarded: finalState.lifetimeAwarded, limit: minted.limit });
     } catch (err) {
+      hostLogger.error('openrouter_claim_failed', {
+        userId: user.userId,
+        status: err.status || 400,
+        error: err?.message || String(err),
+        hasCode: Boolean(code),
+        hasState: Boolean(oauthState),
+        hasVerifier: Boolean(codeVerifier),
+      });
       return jsonError(c, err, err.status || 400);
     }
   });

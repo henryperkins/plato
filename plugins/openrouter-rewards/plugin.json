@@ -16,8 +16,7 @@
     "ui.slot.adminSettingsPanel",
     "ui.slot.adminProfileFields",
     "ui.slot.learnerProfileFields",
-    "ui.slot.learnerCompletionAfter",
-    "ui.slot.learnerHomeBanner"
+    "ui.slot.learnerCompletionAfter"
   ],
   "extensionPoints": {
     "serverRoutes": "server/index.js#default",
@@ -25,8 +24,7 @@
       "adminSettingsPanel": "client/AdminSettingsPanel.jsx",
       "adminProfileFields": "client/AdminProfileFields.jsx",
       "learnerProfileFields": "client/LearnerProfileFields.jsx",
-      "learnerCompletionAfter": "client/LearnerCompletionAfter.jsx",
-      "learnerHomeBanner": "client/LearnerHomeBanner.jsx"
+      "learnerCompletionAfter": "client/LearnerCompletionAfter.jsx"
     }
   },
   "settingsSchema": {

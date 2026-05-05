@@ -8,7 +8,7 @@ export async function startOpenRouterClaim({
   createChallenge = createPkceChallenge,
   fetcher = authenticatedFetch,
   storage = globalThis.sessionStorage,
-  getCallbackUrl = () => globalThis.window.location.href,
+  getCallbackUrl = () => new URL('/openrouter-callback', globalThis.window.location.origin).toString(),
   assign = (url) => globalThis.window.location.assign(url),
 } = {}) {
   const verifier = createVerifier();

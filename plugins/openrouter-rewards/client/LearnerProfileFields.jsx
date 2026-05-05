@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { authenticatedFetch } from '../../../client/js/auth.js';
-import { completeOpenRouterClaimFromUrl, startOpenRouterClaim } from './claim-flow.js';
+import { startOpenRouterClaim } from './claim-flow.js';
 
 export default function LearnerProfileFields() {
   const [status, setStatus] = useState(null);
@@ -17,8 +17,6 @@ export default function LearnerProfileFields() {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const claimResult = await completeOpenRouterClaimFromUrl();
-      if (!cancelled && claimResult) setMessage(claimResult);
       const res = await authenticatedFetch('/v1/plugins/openrouter-rewards/status');
       if (!cancelled && res.ok) setStatus(await res.json());
     })().catch(() => {});
