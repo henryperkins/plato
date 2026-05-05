@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { Hono } from '../../../server/src/lib/plugins/sdk.js';
 import db from '../../../server/src/lib/db.js';
 import { signAccessToken } from '../../../server/src/lib/jwt.js';
-import { createRoutes } from './index.js';
+import openRouterPlugin, { createRoutes } from './index.js';
 import { emptyState } from './state.js';
 
 const PLUGIN_ID = 'openrouter-rewards';
@@ -95,6 +95,10 @@ describe('OpenRouter rewards routes', () => {
     h.route('/', createRoutes({ createClient: () => openrouter, uuid: () => 'res-1', now: () => new Date('2026-05-05T12:00:00.000Z') }));
     return h;
   }
+
+  it('exports host-compatible server routes', () => {
+    assert.equal(typeof openRouterPlugin.routes.fetch, 'function');
+  });
 
   it('returns pending-oauth for repeated completion mounts with an existing pending claim', async () => {
     store.set('usr_user', `userMeta:${PLUGIN_ID}`, {

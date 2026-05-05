@@ -359,4 +359,6 @@ export function createRoutes({
   return routes;
 }
 
-export default createRoutes();
+export default {
+  routes: createRoutes(),
+};
