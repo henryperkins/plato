@@ -1,43 +1,15 @@
 import { useEffect, useState } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
-import { authenticatedFetch } from '../../../client/js/auth.js';
+import { completeOpenRouterClaimFromUrl } from './claim-flow.js';
 
 export default function LearnerHomeBanner() {
   const [message, setMessage] = useState(null);
 
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const code = params.get('code');
-    const state = params.get('state');
-    if (!code || !state) return;
-
-    const verifierKey = `or-pkce-verifier:${state}`;
-    const verifier = sessionStorage.getItem(verifierKey);
-    sessionStorage.removeItem(verifierKey);
-    params.delete('code');
-    params.delete('state');
-    const nextSearch = params.toString();
-    history.replaceState(null, '', `${window.location.pathname}${nextSearch ? `?${nextSearch}` : ''}${window.location.hash}`);
-
-    if (!verifier) {
-      setMessage({ type: 'error', text: 'OpenRouter sign-in expired. Claim again.' });
-      return;
-    }
-
     let cancelled = false;
     (async () => {
-      try {
-        const res = await authenticatedFetch('/v1/plugins/openrouter-rewards/claim', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ code, state, codeVerifier: verifier }),
-        });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || 'OpenRouter claim failed');
-        if (!cancelled) setMessage({ type: 'success', plaintext: data.plaintext });
-      } catch (err) {
-        if (!cancelled) setMessage({ type: 'error', text: err.message });
-      }
+      const result = await completeOpenRouterClaimFromUrl();
+      if (!cancelled && result) setMessage(result);
     })();
     return () => { cancelled = true; };
   }, []);
