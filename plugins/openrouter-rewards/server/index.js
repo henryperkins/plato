@@ -7,13 +7,12 @@ import {
   getUserMetaWithVersion,
   putUserMetaConditional,
   emitSecret,
-  APP_URL,
   hostLogger,
 } from '../../../src/lib/plugins/sdk.js';
 import {
   emptyState,
   normalizeState,
-  existingPendingResponse,
+  pruneStaleAwardReservations,
   reserveAward,
   clearReservation,
   markReservationExternalSucceeded,
@@ -22,7 +21,6 @@ import {
   finalizeReissue,
 } from './state.js';
 import { buildAward, evaluateRules, validateSharedPolicy } from './rules.js';
-import { buildAuthorizationUrl, buildOauthSession, consumeOauthSession } from './oauth-state.js';
 import { createOpenRouterClient } from './openrouter-client.js';
 
 export const PLUGIN_ID = 'openrouter-rewards';
@@ -60,45 +58,16 @@ function expiresAtFor(rule, now) {
   return new Date(now.getTime() + Number(rule.expiresAfterDays) * 24 * 60 * 60 * 1000).toISOString();
 }
 
-function defaultCallbackUrl() {
-  return `${APP_URL || ''}/`;
-}
-
-function isLocalhost(hostname) {
-  return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]';
-}
-
-function resolveCallbackUrl(candidate) {
-  const fallback = defaultCallbackUrl();
-  if (!candidate) return fallback;
-
-  const url = new URL(candidate);
-  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
-    throw new Error('Invalid OpenRouter callback URL');
-  }
-
-  const app = new URL(fallback);
-  const sameOrigin = url.origin === app.origin;
-  const localDev = isLocalhost(url.hostname) && isLocalhost(app.hostname);
-  if (!sameOrigin && !localDev) {
-    throw new Error('Invalid OpenRouter callback URL');
-  }
-
-  return url.toString();
+function hasInFlightAwardReservation(state) {
+  return (state.reservations || []).some((r) => r.kind === 'award');
 }
 
 function publicState(state) {
   const s = normalizeState(state);
   return {
-    openrouterUserId: s.openrouterUserId,
     keyHashSuffix: s.keyHash ? String(s.keyHash).slice(-8) : null,
     lifetimeAwarded: s.lifetimeAwarded || 0,
     firedRuleIds: s.firedRuleIds || [],
-    pendingClaim: s.pendingClaim ? {
-      ruleIds: s.pendingClaim.ruleIds || [],
-      accumulatedAmount: s.pendingClaim.accumulatedAmount || 0,
-      qualifiedAt: s.pendingClaim.qualifiedAt || null,
-    } : null,
     pendingReissue: s.pendingReissue || null,
   };
 }
@@ -124,11 +93,9 @@ export function createRoutes({
     const { lessonId } = await c.req.json().catch(() => ({}));
     const settings = await readSettings();
     const latest = await getUserMetaWithVersion(user.userId, PLUGIN_ID);
-    const state = normalizeState(latest.data || emptyState());
+    const state = pruneStaleAwardReservations(normalizeState(latest.data || emptyState()), { now: now() });
 
-    const existing = existingPendingResponse(state);
-    if (existing) return c.json(existing);
-    if ((state.reservations || []).some((r) => r.kind === 'award')) {
+    if (hasInFlightAwardReservation(state)) {
       return c.json({ status: 'processing' }, 202);
     }
 
@@ -150,14 +117,6 @@ export function createRoutes({
       writeResult = await saveLatest(user.userId, reserved, latest.version);
     } catch (err) {
       return jsonError(c, err, err.status || 409);
-    }
-
-    if (!reserved.openrouterUserId) {
-      return c.json({
-        status: 'pending-oauth',
-        accumulatedAmount: reserved.pendingClaim.accumulatedAmount,
-        ruleNames: matched.map((rule) => rule.name || rule.id),
-      });
     }
 
     let externalSucceeded = false;
@@ -185,8 +144,7 @@ export function createRoutes({
       }
 
       const minted = await client.createKey({
-        workspace_id: settings.workspaceId,
-        creator_user_id: reserved.openrouterUserId,
+        ...(settings.workspaceId ? { workspace_id: settings.workspaceId } : {}),
         name: keyNameFor(user, settings),
         limit: award.targetLimit,
         limit_reset: award.limitReset,
@@ -213,6 +171,13 @@ export function createRoutes({
 
       return c.json({ status: 'minted', plaintext: minted.plaintext, lifetimeAwarded: finalState.lifetimeAwarded, limit: minted.limit });
     } catch (err) {
+      hostLogger.error('openrouter_mint_failed', {
+        userId: user.userId,
+        status: err.status || 500,
+        error: err?.message || String(err),
+        topUp: Boolean(reserved.keyHash),
+        externalSucceeded,
+      });
       if (!externalSucceeded) {
         const retry = await getUserMetaWithVersion(user.userId, PLUGIN_ID);
         await putUserMetaConditional(user.userId, PLUGIN_ID, clearReservation(retry.data, reservationId), retry.version)
@@ -222,93 +187,32 @@ export function createRoutes({
     }
   });
 
-  routes.post('/oauth/start', authenticate, async (c) => {
-    const user = c.get('user');
-    const { codeChallenge, callbackUrl } = await c.req.json().catch(() => ({}));
-    const latest = await getUserMetaWithVersion(user.userId, PLUGIN_ID);
-    const state = normalizeState(latest.data || emptyState());
-    try {
-      const { state: oauthState, nextState } = buildOauthSession(state, { codeChallenge, now: now() });
-      await saveLatest(user.userId, nextState, latest.version);
-      return c.json({
-        state: oauthState,
-        authorizationUrl: buildAuthorizationUrl({
-          state: oauthState,
-          codeChallenge,
-          callbackUrl: resolveCallbackUrl(callbackUrl),
-        }),
-      });
-    } catch (err) {
-      return jsonError(c, err, err.status || 400);
-    }
-  });
-
-  routes.post('/claim', authenticate, async (c) => {
-    const user = c.get('user');
-    const { code, state: oauthState, codeVerifier } = await c.req.json().catch(() => ({}));
-    const settings = await readSettings();
-    const client = createClient({ managementKey: settings.managementKey });
-    const latest = await getUserMetaWithVersion(user.userId, PLUGIN_ID);
-    const current = normalizeState(latest.data || emptyState());
-    try {
-      const consumed = consumeOauthSession(current, { state: oauthState, codeVerifier, now: now() });
-      const consumedWrite = await saveLatest(user.userId, consumed.nextState, latest.version);
-      const oauth = await client.exchangeOAuthCode({ code, codeVerifier });
-      if (settings.workspaceId && oauth.openrouterUserId) {
-        await client.addWorkspaceMember(settings.workspaceId, oauth.openrouterUserId);
-      }
-      const pending = consumed.nextState.pendingClaim;
-      if (!pending) return c.json({ status: 'no-claim' });
-      const reservationId = pending.reservationIds?.[0] || uuid();
-      const stateWithReservation = consumed.nextState.reservations?.some((r) => r.id === reservationId)
-        ? consumed.nextState
-        : reserveAward({ ...consumed.nextState, openrouterUserId: oauth.openrouterUserId }, pending.ruleIds.map((id) => ({ id })), {
-            amount: pending.accumulatedAmount,
-            targetLimit: pending.accumulatedAmount,
-            reservationId,
-            createdAt: pending.qualifiedAt || now().toISOString(),
-          });
-      const minted = await client.createKey({
-        workspace_id: settings.workspaceId,
-        creator_user_id: oauth.openrouterUserId,
-        name: keyNameFor(user, settings),
-        limit: pending.accumulatedAmount,
-      });
-      const afterExternal = markReservationExternalSucceeded(stateWithReservation, reservationId, { keyHash: minted.hash });
-      const externalWrite = await saveLatest(user.userId, afterExternal, consumedWrite.version);
-      const finalState = finalizeAwardReservation(afterExternal, reservationId, {
-        keyHash: minted.hash,
-        openrouterUserId: oauth.openrouterUserId,
-        awardedAt: now().toISOString(),
-      });
-      await saveLatest(user.userId, finalState, externalWrite.version);
-      if (settings.delivery?.slackDmEnabled === true) {
-        await emitSecret('openrouter-rewards.keyAwarded', 'slack', {
-          userId: user.userId,
-          userEmail: user.email,
-          plaintext: minted.plaintext,
-          keyHash: minted.hash,
-          slackDmAllowed: true,
-        });
-      }
-      return c.json({ status: 'minted', plaintext: minted.plaintext, lifetimeAwarded: finalState.lifetimeAwarded, limit: minted.limit });
-    } catch (err) {
-      hostLogger.error('openrouter_claim_failed', {
-        userId: user.userId,
-        status: err.status || 400,
-        error: err?.message || String(err),
-        hasCode: Boolean(code),
-        hasState: Boolean(oauthState),
-        hasVerifier: Boolean(codeVerifier),
-      });
-      return jsonError(c, err, err.status || 400);
-    }
-  });
-
   routes.get('/status', authenticate, async (c) => {
     const user = c.get('user');
+    const settings = await readSettings();
     const latest = await getUserMetaWithVersion(user.userId, PLUGIN_ID);
-    return c.json(publicState(latest.data));
+    const state = pruneStaleAwardReservations(normalizeState(latest.data || emptyState()), { now: now() });
+    const base = publicState(state);
+
+    // While an award reservation is in flight, suppress availableReward — the
+    // /check-pending caller is the source of truth for that ongoing operation.
+    if (hasInFlightAwardReservation(state)) {
+      return c.json({ ...base, availableReward: null });
+    }
+
+    let availableReward = null;
+    try {
+      const completions = await listCompletedLessons(user.userId);
+      const matched = evaluateRules(rewardRules(settings), state, completions);
+      if (matched.length > 0) {
+        const accumulatedAmount = matched.reduce((sum, rule) => sum + Number(rule.creditAmount || 0), 0);
+        availableReward = { accumulatedAmount, ruleIds: matched.map((rule) => rule.id) };
+      }
+    } catch {
+      // A misconfigured rule set must not break /status. The Claim button hidden is
+      // strictly safer than a 500.
+    }
+    return c.json({ ...base, availableReward });
   });
 
   routes.post('/reissue', authenticate, async (c) => {
@@ -325,8 +229,7 @@ export function createRoutes({
       const reserved = reserveReissue(state, { reservationId, oldKeyHash: state.keyHash, remainingCredit, createdAt: now().toISOString() });
       const reserveWrite = await saveLatest(user.userId, reserved, latest.version);
       const replacement = await client.createKey({
-        workspace_id: settings.workspaceId,
-        creator_user_id: state.openrouterUserId,
+        ...(settings.workspaceId ? { workspace_id: settings.workspaceId } : {}),
         name: keyNameFor(user, settings),
         limit: remainingCredit,
       });
@@ -346,8 +249,8 @@ export function createRoutes({
     const settings = { ...(await readSettings()), ...body };
     const client = createClient({ managementKey: settings.managementKey });
     try {
-      const [keys, workspaces] = await Promise.all([client.listKeys(), client.listWorkspaces()]);
-      return c.json({ ok: true, keyCount: Array.isArray(keys) ? keys.length : null, workspaces });
+      const keys = await client.listKeys();
+      return c.json({ ok: true, keyCount: Array.isArray(keys) ? keys.length : null });
     } catch (err) {
       return jsonError(c, err, err.status || 400);
     }

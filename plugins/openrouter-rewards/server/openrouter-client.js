@@ -30,21 +30,6 @@ export function createOpenRouterClient({ managementKey, baseUrl = DEFAULT_BASE_U
   };
 
   return {
-    async exchangeOAuthCode({ code, codeVerifier }) {
-      const json = await request('/auth/keys', {
-        method: 'POST',
-        body: JSON.stringify({ code, code_verifier: codeVerifier, code_challenge_method: 'S256' }),
-      });
-      return { plaintext: json.key, openrouterUserId: json.user_id || json.userId || json.data?.user_id };
-    },
-
-    async addWorkspaceMember(workspaceId, userId) {
-      return request(`/workspaces/${encodeURIComponent(workspaceId)}/members/add`, {
-        method: 'POST',
-        body: JSON.stringify({ user_ids: [userId] }),
-      });
-    },
-
     async createKey(body) {
       const json = await request('/keys', { method: 'POST', body: JSON.stringify(body) });
       const data = json.data || json;
@@ -77,11 +62,6 @@ export function createOpenRouterClient({ managementKey, baseUrl = DEFAULT_BASE_U
 
     async listKeys() {
       const json = await request('/keys');
-      return json.data || json;
-    },
-
-    async listWorkspaces() {
-      const json = await request('/workspaces');
       return json.data || json;
     },
   };

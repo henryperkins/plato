@@ -1,14 +1,16 @@
-import { createHash } from 'node:crypto';
+// Fields written by the pre-Model-Y OAuth flow. The OAuth dance was removed in the
+// Model Y rewrite; these names are retained here only so legacy persisted state can
+// be stripped on read instead of being carried forward indefinitely.
+const LEGACY_OAUTH_FIELDS = ['pendingClaim', 'oauthSessions', 'openrouterUserId'];
+
+const DEFAULT_AWARD_RESERVATION_TTL_MS = 5 * 60 * 1000;
 
 export function emptyState() {
   return {
-    openrouterUserId: null,
     keyHash: null,
     activeKeyPolicy: null,
     lifetimeAwarded: 0,
     firedRuleIds: [],
-    pendingClaim: null,
-    oauthSessions: [],
     pendingReissue: null,
     reissueReservation: null,
     reservations: [],
@@ -17,35 +19,27 @@ export function emptyState() {
 }
 
 export function normalizeState(state) {
-  return { ...emptyState(), ...(state || {}) };
+  const filtered = { ...(state || {}) };
+  for (const field of LEGACY_OAUTH_FIELDS) delete filtered[field];
+  return { ...emptyState(), ...filtered };
 }
 
-export function claimFingerprint(pendingClaim) {
-  const stable = JSON.stringify({
-    ruleIds: [...(pendingClaim?.ruleIds || [])].sort(),
-    amount: pendingClaim?.accumulatedAmount || 0,
-  });
-  return `sha256:${createHash('sha256').update(stable).digest('hex')}`;
-}
-
-export function existingPendingResponse(state) {
-  if (!state?.pendingClaim) return null;
+// Pre-Model-Y `/claim` could leave award reservations in 'reserved' phase forever
+// when the OAuth callback never fired. /check-pending refuses to evaluate new rules
+// while an award reservation exists, so without this helper those users would be
+// stuck. We never drop 'external-succeeded' reservations — that phase marks an
+// irreversible OpenRouter side effect that still needs finalization.
+export function pruneStaleAwardReservations(stateInput, { now = new Date(), staleAfterMs = DEFAULT_AWARD_RESERVATION_TTL_MS } = {}) {
+  const state = normalizeState(stateInput);
+  const cutoff = new Date(now.getTime() - staleAfterMs).toISOString();
   return {
-    status: 'pending-oauth',
-    accumulatedAmount: state.pendingClaim.accumulatedAmount,
-    ruleIds: state.pendingClaim.ruleIds || [],
+    ...state,
+    reservations: (state.reservations || []).filter((r) => {
+      if (r.phase === 'external-succeeded') return true;
+      if (r.kind !== 'award') return true;
+      return (r.createdAt || '') > cutoff;
+    }),
   };
-}
-
-export function createPendingClaim(rules, amount, qualifiedAt) {
-  const pending = {
-    ruleIds: rules.map((rule) => rule.id),
-    reservationIds: [],
-    accumulatedAmount: amount,
-    qualifiedAt,
-  };
-  pending.claimFingerprint = claimFingerprint(pending);
-  return pending;
 }
 
 export function reserveAward(stateInput, rules, { amount, targetLimit, reservationId, createdAt }) {
@@ -60,14 +54,8 @@ export function reserveAward(stateInput, rules, { amount, targetLimit, reservati
     targetLimit,
     createdAt,
   };
-  const pendingClaim = state.openrouterUserId
-    ? state.pendingClaim
-    : (state.pendingClaim || createPendingClaim(rules, amount, createdAt));
   return {
     ...state,
-    pendingClaim: pendingClaim
-      ? { ...pendingClaim, reservationIds: [...new Set([...(pendingClaim.reservationIds || []), reservationId])] }
-      : null,
     reservations: [...(state.reservations || []), reservation],
   };
 }
@@ -96,25 +84,16 @@ export function markReservationExternalSucceeded(stateInput, reservationId, exte
   };
 }
 
-export function finalizeAwardReservation(stateInput, reservationId, { keyHash, awardedAt, openrouterUserId = null }) {
+export function finalizeAwardReservation(stateInput, reservationId, { keyHash, awardedAt }) {
   const state = normalizeState(stateInput);
   const reservation = state.reservations.find((item) => item.id === reservationId);
   if (!reservation) return state;
   const fired = new Set([...(state.firedRuleIds || []), ...reservation.ruleIds]);
-  const pendingClaim = state.pendingClaim
-    ? {
-        ...state.pendingClaim,
-        ruleIds: (state.pendingClaim.ruleIds || []).filter((id) => !reservation.ruleIds.includes(id)),
-        reservationIds: (state.pendingClaim.reservationIds || []).filter((id) => id !== reservationId),
-      }
-    : null;
   return {
     ...state,
-    openrouterUserId: openrouterUserId || state.openrouterUserId,
     keyHash,
     lifetimeAwarded: (state.lifetimeAwarded || 0) + reservation.amount,
     firedRuleIds: [...fired],
-    pendingClaim: pendingClaim && pendingClaim.ruleIds.length ? pendingClaim : null,
     reservations: state.reservations.filter((item) => item.id !== reservationId),
     lastAwardedAt: awardedAt,
     issuedAt: state.issuedAt || awardedAt,

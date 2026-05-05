@@ -66,6 +66,7 @@ describe('OpenRouter rewards routes', () => {
           workspaceId: 'ws_1',
           rules: [{ id: 'rule-1', name: 'First lesson', enabled: true, trigger: 'lesson-count', value: 1, creditAmount: 5, limitReset: 'monthly', expiresAfterDays: null }],
           delivery: { slackDmEnabled: false },
+          keyNameTemplate: 'plato:{classroomName}:{userEmail}',
         },
       },
     });
@@ -81,6 +82,11 @@ describe('OpenRouter rewards routes', () => {
         openrouter.calls.push({ method: 'patchKey', hash, body });
         return { hash, limit: body.limit };
       },
+      createKey: async (body) => {
+        openrouter.calls.push({ method: 'createKey', body });
+        return { hash: 'hash_new', plaintext: 'sk-or-v1-minted', limit: body.limit };
+      },
+      listKeys: async () => [],
     };
   });
 
@@ -101,117 +107,165 @@ describe('OpenRouter rewards routes', () => {
     assert.equal(typeof openRouterPlugin.routes.fetch, 'function');
   });
 
-  it('returns pending-oauth for repeated completion mounts with an existing pending claim', async () => {
-    store.set('usr_user', `userMeta:${PLUGIN_ID}`, {
-      ...emptyState(),
-      pendingClaim: {
-        ruleIds: ['rule-1'],
-        reservationIds: ['res-1'],
-        accumulatedAmount: 5,
-        qualifiedAt: '2026-05-05T12:00:00.000Z',
-        claimFingerprint: 'sha256:claim',
-      },
-    });
-
+  it('mints a new key synchronously when rules match and the user has no key yet', async () => {
     const res = await userReq(app(), 'POST', '/check-pending', { lessonId: 'lesson-a' });
     assert.equal(res.status, 200);
-    assert.deepEqual(await res.json(), {
-      status: 'pending-oauth',
-      accumulatedAmount: 5,
-      ruleIds: ['rule-1'],
-    });
+    const data = await res.json();
+    assert.equal(data.status, 'minted');
+    assert.equal(data.plaintext, 'sk-or-v1-minted');
+    assert.equal(data.lifetimeAwarded, 5);
+
+    const create = openrouter.calls.find((call) => call.method === 'createKey');
+    assert.ok(create, 'expected createKey to be called');
+    assert.equal(create.body.workspace_id, 'ws_1');
+    assert.equal(create.body.name, 'plato:plato:learner@example.com');
+    assert.equal(create.body.limit, 5);
+    assert.equal(create.body.limit_reset, 'monthly');
+    // Must NOT pass creator_user_id (model-Y rewrite drops it).
+    assert.equal(create.body.creator_user_id, undefined);
+
+    const persisted = store.read('usr_user', `userMeta:${PLUGIN_ID}`);
+    assert.equal(persisted.keyHash, 'hash_new');
+    assert.deepEqual(persisted.firedRuleIds, ['rule-1']);
+    assert.equal(persisted.reservations.length, 0);
+  });
+
+  it('returns no-claim when no rules match', async () => {
+    // User has already fired the only rule.
+    store.set('usr_user', `userMeta:${PLUGIN_ID}`, { ...emptyState(), firedRuleIds: ['rule-1'] });
+    const res = await userReq(app(), 'POST', '/check-pending', { lessonId: 'lesson-a' });
+    assert.equal(res.status, 200);
+    assert.deepEqual(await res.json(), { status: 'no-claim' });
     assert.equal(openrouter.calls.length, 0);
   });
 
-  it('patches top-up to an absolute target limit', async () => {
+  it('patches top-up to an absolute target limit when the user already has a key', async () => {
     store.set('usr_user', `userMeta:${PLUGIN_ID}`, {
       ...emptyState(),
-      openrouterUserId: 'user_or',
       keyHash: 'hash_1',
+      lifetimeAwarded: 10,
       firedRuleIds: [],
     });
 
     const res = await userReq(app(), 'POST', '/check-pending', { lessonId: 'lesson-a' });
 
     assert.equal(res.status, 200);
-    assert.equal(openrouter.calls[0].body.limit, 15);
+    const data = await res.json();
+    assert.equal(data.status, 'topped-up');
+    assert.equal(data.addedCredit, 5);
+    const patch = openrouter.calls.find((call) => call.method === 'patchKey');
+    assert.ok(patch);
+    assert.equal(patch.body.limit, 15); // currentKey.limit (10) + amount (5)
   });
 
-  it('uses a validated client callback URL for local OAuth starts', async () => {
+  it('returns processing 202 when an in-flight award reservation already exists', async () => {
+    // Recent reservation, well within the 5-minute TTL.
     store.set('usr_user', `userMeta:${PLUGIN_ID}`, {
       ...emptyState(),
-      pendingClaim: {
+      reservations: [{
+        id: 'in-flight',
+        kind: 'award',
+        phase: 'reserved',
         ruleIds: ['rule-1'],
-        reservationIds: ['res-1'],
-        accumulatedAmount: 5,
-        qualifiedAt: '2026-05-05T12:00:00.000Z',
-        claimFingerprint: 'sha256:claim',
-      },
+        amount: 5,
+        targetLimit: 5,
+        createdAt: '2026-05-05T11:59:00.000Z',
+      }],
+    });
+    const res = await userReq(app(), 'POST', '/check-pending', { lessonId: 'lesson-a' });
+    assert.equal(res.status, 202);
+    assert.deepEqual(await res.json(), { status: 'processing' });
+  });
+
+  it('prunes stale OAuth-era reservations so a stuck user can claim again', async () => {
+    // Reserved-phase award reservation older than the 5-minute TTL — typical of a
+    // pre-rewrite /claim attempt that never completed because the OAuth callback
+    // failed. Without pruning, /check-pending would forever return processing.
+    store.set('usr_user', `userMeta:${PLUGIN_ID}`, {
+      ...emptyState(),
+      pendingClaim: { ruleIds: ['rule-1'], reservationIds: ['stale'], accumulatedAmount: 5, qualifiedAt: 't', claimFingerprint: 'sha256:abc' },
+      oauthSessions: [{ stateHash: 'sha256:x', codeChallenge: 'c', claimFingerprint: 'sha256:abc', createdAt: 't', expiresAt: 't+10' }],
+      openrouterUserId: 'or_user_legacy',
+      reservations: [{
+        id: 'stale',
+        kind: 'award',
+        phase: 'reserved',
+        ruleIds: ['rule-1'],
+        amount: 5,
+        targetLimit: 5,
+        createdAt: '2026-05-05T11:00:00.000Z', // 1h old
+      }],
     });
 
-    const res = await userReq(app(), 'POST', '/oauth/start', {
-      codeChallenge: 'challenge-1',
-      callbackUrl: 'http://localhost:5173/settings',
-    });
-
+    const res = await userReq(app(), 'POST', '/check-pending', { lessonId: 'lesson-a' });
     assert.equal(res.status, 200);
     const data = await res.json();
-    const authUrl = new URL(data.authorizationUrl);
-    assert.equal(authUrl.searchParams.get('callback_url'), 'http://localhost:5173/settings');
+    assert.equal(data.status, 'minted');
+
+    const persisted = store.read('usr_user', `userMeta:${PLUGIN_ID}`);
+    // Legacy fields must not be carried forward.
+    assert.equal(persisted.pendingClaim, undefined);
+    assert.equal(persisted.oauthSessions, undefined);
+    assert.equal(persisted.openrouterUserId, undefined);
   });
 
-  it('rejects non-local OAuth callback URLs', async () => {
-    store.set('usr_user', `userMeta:${PLUGIN_ID}`, {
-      ...emptyState(),
-      pendingClaim: {
-        ruleIds: ['rule-1'],
-        reservationIds: ['res-1'],
-        accumulatedAmount: 5,
-        qualifiedAt: '2026-05-05T12:00:00.000Z',
-        claimFingerprint: 'sha256:claim',
-      },
-    });
-
-    const res = await userReq(app(), 'POST', '/oauth/start', {
-      codeChallenge: 'challenge-1',
-      callbackUrl: 'https://evil.example/settings',
-    });
-
-    assert.equal(res.status, 400);
-  });
-
-  it('logs openrouter_claim_failed with non-secret context when /claim errors', async () => {
+  it('logs openrouter_mint_failed with non-secret context when createKey errors', async () => {
     logger._reset();
+    openrouter.createKey = async () => {
+      const err = new Error('upstream rejected');
+      err.status = 502;
+      throw err;
+    };
+
+    const res = await userReq(app(), 'POST', '/check-pending', { lessonId: 'lesson-a' });
+    assert.equal(res.status, 502);
+
+    const failed = logger.recent({ level: 'error' }).find((e) => e.code === 'openrouter_mint_failed');
+    assert.ok(failed, 'expected openrouter_mint_failed log entry');
+    assert.equal(failed.meta.userId, 'usr_user');
+    assert.equal(failed.meta.status, 502);
+    assert.equal(failed.meta.topUp, false);
+    assert.equal(failed.meta.externalSucceeded, false);
+    assert.equal(typeof failed.meta.error, 'string');
+    // Reservation must be cleared so the user can retry.
+    const persisted = store.read('usr_user', `userMeta:${PLUGIN_ID}`);
+    assert.equal((persisted.reservations || []).length, 0);
+  });
+
+  it('GET /status reports availableReward for unclaimed rules', async () => {
+    const res = await userReq(app(), 'GET', '/status');
+    assert.equal(res.status, 200);
+    const data = await res.json();
+    assert.deepEqual(data.availableReward, { accumulatedAmount: 5, ruleIds: ['rule-1'] });
+    assert.equal(data.keyHashSuffix, null);
+    // Must not mutate state — no createKey call.
+    assert.equal(openrouter.calls.length, 0);
+  });
+
+  it('GET /status returns availableReward=null when the user has fired all rules', async () => {
+    store.set('usr_user', `userMeta:${PLUGIN_ID}`, { ...emptyState(), firedRuleIds: ['rule-1'] });
+    const res = await userReq(app(), 'GET', '/status');
+    assert.equal(res.status, 200);
+    const data = await res.json();
+    assert.equal(data.availableReward, null);
+  });
+
+  it('GET /status suppresses availableReward while an award reservation is in flight', async () => {
     store.set('usr_user', `userMeta:${PLUGIN_ID}`, {
       ...emptyState(),
-      pendingClaim: {
+      reservations: [{
+        id: 'in-flight',
+        kind: 'award',
+        phase: 'reserved',
         ruleIds: ['rule-1'],
-        reservationIds: ['res-1'],
-        accumulatedAmount: 5,
-        qualifiedAt: '2026-05-05T12:00:00.000Z',
-        claimFingerprint: 'sha256:claim',
-      },
+        amount: 5,
+        targetLimit: 5,
+        createdAt: '2026-05-05T11:59:00.000Z',
+      }],
     });
-
-    // No oauthSession was created, so /claim's consumeOauthSession will throw.
-    const res = await userReq(app(), 'POST', '/claim', {
-      code: 'auth-code',
-      state: 'unknown-state',
-      codeVerifier: 'verifier-1',
-    });
-
-    assert.equal(res.status, 400);
-    const entries = logger.recent({ level: 'error' });
-    const failed = entries.find((e) => e.code === 'openrouter_claim_failed');
-    assert.ok(failed, 'expected openrouter_claim_failed log entry');
-    assert.equal(failed.meta.userId, 'usr_user');
-    assert.equal(failed.meta.hasCode, true);
-    assert.equal(failed.meta.hasState, true);
-    assert.equal(failed.meta.hasVerifier, true);
-    assert.equal(typeof failed.meta.error, 'string');
-    // Must not log the actual secrets.
-    const serialized = JSON.stringify(failed.meta);
-    assert.ok(!serialized.includes('auth-code'), 'log meta must not include the OAuth code');
-    assert.ok(!serialized.includes('verifier-1'), 'log meta must not include the PKCE verifier');
+    const res = await userReq(app(), 'GET', '/status');
+    assert.equal(res.status, 200);
+    const data = await res.json();
+    assert.equal(data.availableReward, null);
   });
 });

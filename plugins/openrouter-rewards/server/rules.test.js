@@ -3,13 +3,12 @@ import assert from 'node:assert/strict';
 import { evaluateRules, validateSharedPolicy } from './rules.js';
 
 describe('OpenRouter reward rules', () => {
-  it('does not match fired, pending, or reserved rule IDs', () => {
+  it('does not match fired or reserved rule IDs', () => {
     const state = {
       firedRuleIds: ['fired'],
-      pendingClaim: { ruleIds: ['pending'] },
       reservations: [{ ruleIds: ['reserved'] }],
     };
-    const rules = ['fired', 'pending', 'reserved', 'fresh'].map((id) => ({
+    const rules = ['fired', 'reserved', 'fresh'].map((id) => ({
       id,
       enabled: true,
       trigger: 'lesson-count',

@@ -2,13 +2,11 @@ import { useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { authenticatedFetch } from '../../../client/js/auth.js';
-import { startOpenRouterClaim } from './claim-flow.js';
 
 export default function LearnerCompletionAfter({ lessonId }) {
   const checkedRef = useRef(null);
   const cardRef = useRef(null);
   const [result, setResult] = useState(null);
-  const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -23,7 +21,10 @@ export default function LearnerCompletionAfter({ lessonId }) {
           body: JSON.stringify({ lessonId }),
         });
         const data = await res.json();
-        if (!cancelled) setResult(data);
+        if (!cancelled) {
+          if (!res.ok) setError(data.error || 'Reward request failed');
+          else setResult(data);
+        }
       } catch (err) {
         if (!cancelled) setError(err.message);
       }
@@ -36,31 +37,11 @@ export default function LearnerCompletionAfter({ lessonId }) {
     cardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   }, [result]);
 
-  async function startOauth() {
-    setBusy(true);
-    setError('');
-    try {
-      await startOpenRouterClaim();
-    } catch (err) {
-      setError(err.message);
-      setBusy(false);
-    }
-  }
-
   if (!result || result.status === 'no-claim') return null;
 
   return (
     <Card ref={cardRef} className="border-primary/40 bg-primary/5" role="status" aria-live="polite">
       <CardContent className="space-y-3">
-        {result.status === 'pending-oauth' && (
-          <>
-            <div>
-              <p className="text-sm font-medium">OpenRouter reward earned</p>
-              <p className="text-sm text-muted-foreground">You earned ${result.accumulatedAmount} in OpenRouter credits.</p>
-            </div>
-            <Button onClick={startOauth} disabled={busy}>{busy ? 'Opening...' : 'Claim OpenRouter credits'}</Button>
-          </>
-        )}
         {result.status === 'processing' && <p className="text-sm">Reward is being prepared.</p>}
         {result.status === 'topped-up' && <p className="text-sm">Your OpenRouter key limit increased by ${result.addedCredit}.</p>}
         {result.status === 'minted' && <RevealKey plaintext={result.plaintext} />}
@@ -74,13 +55,17 @@ function RevealKey({ plaintext }) {
   const [copied, setCopied] = useState(false);
   return (
     <div className="space-y-2">
-      <p className="text-sm">This key is shown once in plato. If your classroom enabled Slack delivery, it may also appear in Slack.</p>
+      <p className="text-sm">Your OpenRouter API key is ready. Copy it now — it won't be shown again.</p>
       <code className="block break-all rounded bg-muted p-2 text-xs">{plaintext}</code>
       <Button
         variant="outline"
         onClick={async () => {
-          await navigator.clipboard.writeText(plaintext);
-          setCopied(true);
+          try {
+            await navigator.clipboard.writeText(plaintext);
+            setCopied(true);
+          } catch {
+            // Clipboard write can fail in insecure contexts; the key is still visible on the page.
+          }
         }}
       >
         {copied ? 'Copied' : 'Copy key'}

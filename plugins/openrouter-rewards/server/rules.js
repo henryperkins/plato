@@ -1,13 +1,12 @@
 export function evaluateRules(rules, state = {}, completions = [], justCompletedLessonId = null) {
-  const firedOrPending = new Set([
+  const firedOrReserved = new Set([
     ...(state.firedRuleIds ?? []),
-    ...(state.pendingClaim?.ruleIds ?? []),
     ...((state.reservations ?? []).flatMap((r) => r.ruleIds ?? [])),
   ]);
 
   return (rules || []).filter((rule) => {
     if (!rule?.enabled) return false;
-    if (firedOrPending.has(rule.id)) return false;
+    if (firedOrReserved.has(rule.id)) return false;
     if (rule.trigger === 'lesson-count') return completions.length >= Number(rule.value || 0);
     if (rule.trigger === 'specific-lesson') {
       return rule.value === justCompletedLessonId || completions.some((c) => c.lessonId === rule.value);
