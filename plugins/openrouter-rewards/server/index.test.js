@@ -186,7 +186,7 @@ describe('OpenRouter rewards routes', () => {
 
     assert.equal(res.status, 400);
     const data = await res.json();
-    assert.match(data.error, /same reset cadence/);
+    assert.equal(data.error, 'All OpenRouter reward rules must use the same reset cadence and expiry in this version.');
     assert.equal(openrouter.calls.length, 0);
     assert.equal(store.read('usr_user', `userMeta:${PLUGIN_ID}`), undefined);
   });

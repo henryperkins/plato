@@ -26,7 +26,6 @@ export default function LearnerCompletionAfter({ lessonId }) {
         if (!cancelled) {
           if (!res.ok) setError(data.error || 'Reward request failed');
           else {
-            setError('');
             setResult(data);
           }
         }
