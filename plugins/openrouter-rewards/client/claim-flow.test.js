@@ -1,8 +1,12 @@
-import { describe, it } from 'node:test';
+import { afterEach, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { completeOpenRouterClaimFromUrl, startOpenRouterClaim } from './claim-flow.js';
+import { _resetOpenRouterClaimCallbackForTests, completeOpenRouterClaimFromUrl, startOpenRouterClaim } from './claim-flow.js';
 
 describe('OpenRouter claim flow', () => {
+  afterEach(() => {
+    _resetOpenRouterClaimCallbackForTests();
+  });
+
   it('starts OAuth, stores the verifier by state, and navigates to OpenRouter', async () => {
     const stored = new Map();
     let assigned = null;
@@ -101,5 +105,62 @@ describe('OpenRouter claim flow', () => {
     });
 
     assert.deepEqual(result, { type: 'error', text: 'OpenRouter sign-in expired. Claim again.' });
+  });
+
+  it('returns the in-flight callback result after the URL has already been cleared', async () => {
+    let resolveClaim;
+    const first = completeOpenRouterClaimFromUrl({
+      href: 'http://localhost:5173/settings?code=auth-code&state=state-1',
+      storage: {
+        getItem: () => 'verifier-1',
+        removeItem: () => {},
+      },
+      replaceState: () => {},
+      fetcher: async () => new Promise((resolve) => {
+        resolveClaim = () => resolve({
+          ok: true,
+          json: async () => ({ status: 'minted', plaintext: 'sk-or-v1-key' }),
+        });
+      }),
+    });
+
+    const second = completeOpenRouterClaimFromUrl({
+      href: 'http://localhost:5173/settings',
+      storage: { getItem: () => null, removeItem: () => {} },
+      replaceState: () => {},
+      fetcher: async () => { throw new Error('second call should reuse in-flight claim'); },
+    });
+
+    resolveClaim();
+
+    assert.deepEqual(await first, { type: 'success', plaintext: 'sk-or-v1-key', data: { status: 'minted', plaintext: 'sk-or-v1-key' } });
+    assert.deepEqual(await second, { type: 'success', plaintext: 'sk-or-v1-key', data: { status: 'minted', plaintext: 'sk-or-v1-key' } });
+  });
+
+  it('returns in-flight callback errors after the URL has already been cleared', async () => {
+    let rejectClaim;
+    const first = completeOpenRouterClaimFromUrl({
+      href: 'http://localhost:5173/settings?code=auth-code&state=state-1',
+      storage: {
+        getItem: () => 'verifier-1',
+        removeItem: () => {},
+      },
+      replaceState: () => {},
+      fetcher: async () => new Promise((_resolve, reject) => {
+        rejectClaim = () => reject(new Error('workspace key failed'));
+      }),
+    });
+
+    const second = completeOpenRouterClaimFromUrl({
+      href: 'http://localhost:5173/settings',
+      storage: { getItem: () => null, removeItem: () => {} },
+      replaceState: () => {},
+      fetcher: async () => { throw new Error('second call should reuse in-flight claim'); },
+    });
+
+    rejectClaim();
+
+    assert.deepEqual(await first, { type: 'error', text: 'workspace key failed' });
+    assert.deepEqual(await second, { type: 'error', text: 'workspace key failed' });
   });
 });

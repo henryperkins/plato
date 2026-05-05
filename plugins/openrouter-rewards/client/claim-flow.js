@@ -1,6 +1,8 @@
 import { authenticatedFetch } from '../../../client/js/auth.js';
 import { createPkceChallenge, createPkceVerifier } from './pkce.js';
 
+let inFlightCallback = null;
+
 export async function startOpenRouterClaim({
   createVerifier = createPkceVerifier,
   createChallenge = createPkceChallenge,
@@ -32,7 +34,7 @@ export async function completeOpenRouterClaimFromUrl({
   const url = new URL(href);
   const code = url.searchParams.get('code');
   const state = url.searchParams.get('state');
-  if (!code || !state) return null;
+  if (!code || !state) return inFlightCallback;
 
   const verifierKey = `or-pkce-verifier:${state}`;
   const verifier = storage.getItem(verifierKey);
@@ -46,16 +48,26 @@ export async function completeOpenRouterClaimFromUrl({
     return { type: 'error', text: 'OpenRouter sign-in expired. Claim again.' };
   }
 
-  try {
-    const res = await fetcher('/v1/plugins/openrouter-rewards/claim', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ code, state, codeVerifier: verifier }),
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'OpenRouter claim failed');
-    return { type: 'success', plaintext: data.plaintext, data };
-  } catch (err) {
-    return { type: 'error', text: err.message };
-  }
+  inFlightCallback = (async () => {
+    try {
+      const res = await fetcher('/v1/plugins/openrouter-rewards/claim', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code, state, codeVerifier: verifier }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'OpenRouter claim failed');
+      return { type: 'success', plaintext: data.plaintext, data };
+    } catch (err) {
+      return { type: 'error', text: err.message };
+    } finally {
+      inFlightCallback = null;
+    }
+  })();
+
+  return inFlightCallback;
+}
+
+export function _resetOpenRouterClaimCallbackForTests() {
+  inFlightCallback = null;
 }
