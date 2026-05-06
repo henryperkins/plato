@@ -96,7 +96,7 @@ plato/
 
 - **Client:** `cd client && npm run dev` starts Vite's dev server with HMR. For production builds: `npm run build`.
 - **Server:** `cd server && node dev-sqlite.js` starts the API with a local SQLite database. Changes require restarting the server.
-- **Tests:** `npm test` in either `client/` or `server/` runs that package's tests. Run both with `npm test` from the root.
+- **Tests:** `npm test` in either `client/` or `server/` runs that package's tests. From the repo root, `npm test` runs client tests, server tests, and every `plugins/**/*.test.js` plugin-local test.
 
 ### Key files
 
@@ -170,7 +170,10 @@ cd client && npm test
 # Server tests
 cd server && npm test
 
-# Both
+# Plugin tests
+cd /path/to/plato && npm run test:plugins
+
+# Full local merge gate: client + server + plugin tests
 cd /path/to/plato && npm test
 ```
 
