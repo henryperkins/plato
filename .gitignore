@@ -10,6 +10,7 @@ server/client-content/
 .github/workflows/deploy.yml
 .github/workflows/deploy-playground.yml
 .DS_Store
+.claude-pr/
 
 # Generated at deploy time from the latest Beta-RC-* tag.
 # See .github/workflows/version-bump.yml (tag creation) and the private

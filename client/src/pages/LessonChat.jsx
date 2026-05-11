@@ -61,7 +61,7 @@ export default function LessonChat() {
   const [composePinned, setComposePinned] = useState(true);
   const composeAnchorRef = useRef(null);
   const [composeText, setComposeText] = useState('');
-  const [composeImage, setComposeImage] = useState(null);
+  const [composeImages, setComposeImages] = useState([]);
 
   // Pin header when its top edge reaches the viewport top
   useEffect(() => {
@@ -183,8 +183,9 @@ export default function LessonChat() {
     return () => { cancelled = true; };
   }, [lessonGroupId, lesson, impersonating]);
 
-  const handleSend = useCallback(async ({ text, imageDataUrl }) => {
-    if (!text && !imageDataUrl) return;
+  const handleSend = useCallback(async ({ text, imageDataUrls }) => {
+    const hasImages = Array.isArray(imageDataUrls) && imageDataUrls.length > 0;
+    if (!text && !hasImages) return;
     setError('');
     setLoading('qa');
     setStreamingText('');
@@ -192,13 +193,13 @@ export default function LessonChat() {
     setMessages(prev => [...prev, {
       role: 'user', content: text || '', msgType: MSG_TYPES.USER,
       phase: LESSON_PHASES.LEARNING,
-      metadata: imageDataUrl ? { imageDataUrl } : null,
+      metadata: hasImages ? { imageDataUrls } : null,
       timestamp: Date.now(),
     }]);
 
     try {
       const result = await engine.sendMessage(
-        lessonGroupId, lesson, text, imageDataUrl,
+        lessonGroupId, lesson, text, imageDataUrls,
         (partial) => setStreamingText(partial)
       );
       const assistantMsg = result.messages.find(m => m.role === 'assistant');
@@ -267,13 +268,21 @@ export default function LessonChat() {
         return (
           <div key={idx}>
             {msg.content && <UserMessage content={msg.content} />}
-            {msg.metadata?.imageDataUrl && (
-              <div className="flex justify-end mt-1">
-                <div className="max-w-[85%] rounded-2xl rounded-br-sm bg-primary p-1.5">
-                  <img src={msg.metadata.imageDataUrl} alt="Your uploaded work" className="max-w-full rounded-lg" />
+            {(() => {
+              const urls = Array.isArray(msg.metadata?.imageDataUrls)
+                ? msg.metadata.imageDataUrls
+                : msg.metadata?.imageDataUrl ? [msg.metadata.imageDataUrl] : [];
+              if (urls.length === 0) return null;
+              return (
+                <div className="flex justify-end mt-1">
+                  <div className="max-w-[85%] rounded-2xl rounded-br-sm bg-primary p-1.5 flex flex-wrap gap-1">
+                    {urls.map((url, i) => (
+                      <img key={i} src={url} alt={`Your uploaded work ${i + 1}`} className="max-w-full rounded-lg" />
+                    ))}
+                  </div>
                 </div>
-              </div>
-            )}
+              );
+            })()}
           </div>
         );
       default:
@@ -380,8 +389,8 @@ export default function LessonChat() {
             allowImages
             text={composeText}
             onTextChange={setComposeText}
-            image={composeImage}
-            onImageChange={setComposeImage}
+            images={composeImages}
+            onImagesChange={setComposeImages}
           />
         </div>
       )}
@@ -397,8 +406,8 @@ export default function LessonChat() {
             elevated
             text={composeText}
             onTextChange={setComposeText}
-            image={composeImage}
-            onImageChange={setComposeImage}
+            images={composeImages}
+            onImagesChange={setComposeImages}
           />
         </div>
       )}

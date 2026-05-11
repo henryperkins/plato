@@ -177,20 +177,34 @@ export async function startLesson(lessonId, lesson, onStream) {
 }
 
 /**
+ * Normalize the imageDataUrl argument to a non-null array.
+ * Accepts: null, '', a single data URL string, or an array of data URLs.
+ * Exported for unit testing — callers should pass an array.
+ */
+export function normalizeImageDataUrls(input) {
+  if (!input) return [];
+  if (Array.isArray(input)) return input.filter(Boolean);
+  return [input];
+}
+
+/**
  * Send a message in the lesson conversation.
+ * @param {string|string[]|null} imageDataUrl - data URL(s) for attached images
  */
 export async function sendMessage(lessonId, lesson, text, imageDataUrl, onStream) {
   assertNotImpersonating('send a message');
   let lessonKB = await getLessonKB(lessonId);
   const profileSummary = await getLearnerProfileSummary();
 
-  assertImageWithinBedrockLimit(imageDataUrl);
+  const imageDataUrls = normalizeImageDataUrls(imageDataUrl);
 
-  // Save image if provided
-  let imageKey = null;
-  if (imageDataUrl) {
-    imageKey = `lesson-${lessonId}-${ts()}`;
-    await saveScreenshot(imageKey, imageDataUrl);
+  // Validate and save images
+  const imageKeys = [];
+  for (const url of imageDataUrls) {
+    assertImageWithinBedrockLimit(url);
+    const key = `lesson-${lessonId}-${ts()}`;
+    await saveScreenshot(key, url);
+    imageKeys.push(key);
   }
 
   // Build conversation tail — filter out messages with empty content (e.g. image-only)
@@ -202,8 +216,8 @@ export async function sendMessage(lessonId, lesson, text, imageDataUrl, onStream
   // Build user message content
   const userParts = [];
   if (text) userParts.push({ type: 'text', text });
-  if (imageDataUrl) {
-    const match = imageDataUrl.match(/^data:(image\/\w+);base64,(.+)$/);
+  for (const url of imageDataUrls) {
+    const match = url.match(/^data:(image\/\w+);base64,(.+)$/);
     if (match) {
       userParts.push({ type: 'image', source: { type: 'base64', media_type: match[1], data: match[2] } });
     }
@@ -213,7 +227,7 @@ export async function sendMessage(lessonId, lesson, text, imageDataUrl, onStream
   const prefs = await getPreferences();
   const contextMsg = buildContext(lesson, lessonKB, profileSummary, prefs.name);
   const messages = [{ role: 'user', content: contextMsg }, { role: 'assistant', content: 'Ready.' }, ...tail];
-  messages.push({ role: 'user', content: userParts.length === 1 && !imageDataUrl ? text : userParts });
+  messages.push({ role: 'user', content: userParts.length === 1 && imageDataUrls.length === 0 ? text : userParts });
 
   const coachMsg = await orchestrator.converseStream(
     'coach',
@@ -245,8 +259,8 @@ export async function sendMessage(lessonId, lesson, text, imageDataUrl, onStream
 
   // Save messages
   const newMessages = [
-    { role: 'user', content: text || (imageKey ? '[image]' : ''), msgType: MSG_TYPES.USER, phase,
-      metadata: imageKey ? { imageKey } : null, timestamp: ts() },
+    { role: 'user', content: text || (imageDataUrls.length > 0 ? '[image]' : ''), msgType: MSG_TYPES.USER, phase,
+      metadata: imageDataUrls.length > 0 ? { imageDataUrls: [...imageDataUrls] } : null, timestamp: ts() },
     { role: 'assistant', content: parsed.text, msgType: MSG_TYPES.GUIDE, phase, timestamp: ts() },
   ];
 
