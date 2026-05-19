@@ -1,7 +1,8 @@
 /**
  * Storage layer backed by server API (via sync endpoints).
  * All data is server-side. An in-memory cache avoids redundant fetches within a session.
- * Auth tokens use localStorage. Screenshots are embedded in draft data.
+ * Auth tokens use localStorage. Pasted images are stored one-per-record
+ * as `screenshot:*` sync data, referenced by key from conversation messages.
  */
 
 import { authenticatedFetch } from './auth.js';
@@ -36,7 +37,12 @@ async function fetchSyncData(syncKey) {
   }
 }
 
-/** Write data to the server with optimistic locking. Also exported for syncDebounce. */
+/**
+ * Write data to the server with optimistic locking. Also exported for
+ * syncDebounce. Returns `true` if the write reached the server durably,
+ * `false` otherwise — callers that need durability (e.g. the legacy-image
+ * migration) check this rather than assuming the cache write stuck.
+ */
 export async function putSyncData(syncKey, data) {
   _cache.set(syncKey, data);
   const version = _versions.get(syncKey) || 0;
@@ -49,6 +55,7 @@ export async function putSyncData(syncKey, data) {
     if (res.ok) {
       const result = await res.json();
       _versions.set(syncKey, result.version);
+      return true;
     } else if (res.status === 409) {
       // Version conflict — fetch latest version and retry once
       const current = await authenticatedFetch(`/v1/sync/${encodeURIComponent(syncKey)}`);
@@ -63,11 +70,24 @@ export async function putSyncData(syncKey, data) {
         if (retry.ok) {
           const retryResult = await retry.json();
           _versions.set(syncKey, retryResult.version);
+          return true;
         }
       }
+      console.error(`[storage] sync write conflict unresolved for "${syncKey}"`);
+      return false;
+    } else {
+      // A non-OK, non-conflict response means the server rejected the write
+      // (e.g. an oversized item). The cache still holds the data for this
+      // session, but it is NOT durable — surface it instead of losing it
+      // silently, which is how conversation loss went undiagnosed (#193).
+      console.error(`[storage] sync write rejected for "${syncKey}": HTTP ${res.status}`);
+      return false;
     }
-  } catch {
-    // Write failed — cache is still updated for this session
+  } catch (err) {
+    // Network failure — cache is still updated for this session but the
+    // write did not reach the server. Log so the loss isn't invisible.
+    console.error('[storage] sync write failed for %s:', syncKey, err);
+    return false;
   }
 }
 
@@ -228,6 +248,16 @@ export async function saveLessonMessages(lessonId, msgs) {
   await putSyncData(key, all);
 }
 
+/**
+ * Overwrite the full conversation record. Unlike saveLessonMessages (which
+ * appends), this replaces — used by the legacy-image migration in
+ * lessonEngine to rewrite a record with images extracted into their own
+ * `screenshot:*` records. Returns putSyncData's durability boolean.
+ */
+export async function replaceLessonMessages(lessonId, msgs) {
+  return putSyncData(`messages:${lessonId}`, msgs);
+}
+
 export async function clearLessonMessages(lessonId) {
   await deleteSyncData(`messages:${lessonId}`);
 }
@@ -329,6 +359,15 @@ export async function deletePreferences() {
 }
 
 export async function deleteLessonProgress(lessonId) {
+  // Pasted images live in their own `screenshot:*` records, referenced by key
+  // from the conversation's messages. Delete them too so a lesson reset
+  // doesn't orphan image records in sync-data.
+  try {
+    const msgs = await getLessonMessages(lessonId);
+    const keys = msgs.flatMap((m) =>
+      Array.isArray(m.metadata?.imageKeys) ? m.metadata.imageKeys : []);
+    await Promise.all([...new Set(keys)].map((k) => deleteScreenshot(k)));
+  } catch { /* best effort — orphaned screenshot records are harmless */ }
   await deleteDraftsForLesson(lessonId);
   await deleteActivitiesForLesson(lessonId);
   await deleteActivityKBsForLesson(lessonId);
@@ -336,14 +375,23 @@ export async function deleteLessonProgress(lessonId) {
   await clearLessonMessages(lessonId);
 }
 
-// -- Screenshots (embedded in drafts as base64) -------------------------------
+// -- Screenshots --------------------------------------------------------------
+//
+// Each pasted image is its own `screenshot:<key>` sync-data record. They are
+// deliberately NOT embedded in the `messages:<lessonId>` record: a single
+// base64 screenshot can be hundreds of KB, and inlining them blew the
+// conversation record past DynamoDB's 400 KB item limit — the write then
+// failed silently and the learner's conversation vanished on the next sync
+// (issues #191, #193). One image per record keeps every record small.
 
 export async function saveScreenshot(key, dataUrl) {
-  // Screenshots are now stored as part of draft data (screenshotDataUrl field).
-  // This function caches the dataUrl so it can be embedded when the draft is saved.
-  _cache.set(`screenshot:${key}`, dataUrl);
+  return putSyncData(`screenshot:${key}`, dataUrl);
 }
 
 export async function getScreenshot(key) {
-  return _cache.get(`screenshot:${key}`) || null;
+  return fetchSyncData(`screenshot:${key}`);
+}
+
+export async function deleteScreenshot(key) {
+  await deleteSyncData(`screenshot:${key}`);
 }
