@@ -72,16 +72,42 @@ export default function LessonChat() {
   const headerRef = useRef(null);
   const [composePinned, setComposePinned] = useState(true);
   const composeAnchorRef = useRef(null);
+  const fixedComposeRef = useRef(null);
   const [composeText, setComposeText] = useState('');
   const [composeImages, setComposeImages] = useState([]);
 
   useEffect(() => {
+    const mainScroller = document.getElementById('main-content');
     const scrollers = [document.documentElement, document.body].filter(Boolean);
     scrollers.forEach(el => el.classList.add('lesson-chat-scroll-padding'));
+
+    const updateComposerHeight = () => {
+      const fixedCompose = fixedComposeRef.current;
+      const height = fixedCompose?.getBoundingClientRect().height;
+      if (mainScroller && height) {
+        mainScroller.style.setProperty('--composer-height', `${Math.ceil(height)}px`);
+        mainScroller.style.scrollPaddingBottom = 'calc(var(--composer-height) + var(--app-footer-height) + var(--safe-bottom) + 1rem)';
+      }
+    };
+
+    updateComposerHeight();
+    let observer = null;
+    if (typeof ResizeObserver !== 'undefined' && fixedComposeRef.current) {
+      observer = new ResizeObserver(updateComposerHeight);
+      observer.observe(fixedComposeRef.current);
+    }
+    window.addEventListener('resize', updateComposerHeight);
+
     return () => {
       scrollers.forEach(el => el.classList.remove('lesson-chat-scroll-padding'));
+      if (mainScroller) {
+        mainScroller.style.removeProperty('--composer-height');
+        mainScroller.style.scrollPaddingBottom = '';
+      }
+      if (observer) observer.disconnect();
+      window.removeEventListener('resize', updateComposerHeight);
     };
-  }, []);
+  }, [composePinned, phase]);
 
   // Pin header when its top edge reaches the viewport top
   useEffect(() => {
@@ -419,7 +445,7 @@ export default function LessonChat() {
 
       {/* Fixed compose overlay — interactive when pinned */}
       {phase && composePinned && (
-        <div className="fixed-compose-safe fixed left-0 right-0 z-50">
+        <div ref={fixedComposeRef} className="fixed-compose-safe fixed left-0 right-0 z-50">
           <ComposeBar
             placeholder={impersonating ? 'Read-only — viewing as another user' : composePlaceholder}
             onSend={handleSend}

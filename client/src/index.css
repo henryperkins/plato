@@ -84,6 +84,7 @@
     --sidebar-ring: oklch(0.985 0 0);
     --safe-top: env(safe-area-inset-top, 0px);
     --safe-bottom: env(safe-area-inset-bottom, 0px);
+    --app-footer-height: 2.25rem;
     --composer-height: 8.5rem;
     --bubble-max: min(42ch, calc(100vw - 2rem));
 }
@@ -149,11 +150,13 @@
 
 @layer utilities {
   .chat-composer-safe {
-    padding-bottom: calc(1rem + var(--safe-bottom));
+    padding-bottom: 1rem;
   }
 
   .fixed-compose-safe {
-    bottom: 0;
+    bottom: var(--app-footer-height);
+    padding-bottom: var(--safe-bottom);
+    background: var(--background);
   }
 
   .chat-log {
@@ -169,7 +172,7 @@
   }
 
   .lesson-chat-scroll-padding {
-    scroll-padding-bottom: calc(var(--composer-height) + var(--safe-bottom) + 1rem);
+    scroll-padding-bottom: calc(var(--composer-height) + var(--app-footer-height) + var(--safe-bottom) + 1rem);
   }
 
   @supports (height: 100dvh) {

@@ -73,6 +73,11 @@ describe('mobile input and chat polish source contracts', () => {
     const lessonChat = source('src/pages/LessonChat.jsx');
     const css = source('src/index.css');
 
+    assertIncludes(lessonChat, "document.getElementById('main-content')");
+    assertIncludes(lessonChat, 'fixedComposeRef');
+    assertIncludes(lessonChat, 'ResizeObserver');
+    assertIncludes(lessonChat, "style.setProperty('--composer-height'");
+    assertIncludes(lessonChat, 'style.scrollPaddingBottom');
     assertIncludes(lessonChat, "classList.add('lesson-chat-scroll-padding')");
     assertIncludes(lessonChat, 'fixed-compose-safe');
     assert.doesNotMatch(lessonChat, /bottom-9/);
@@ -81,10 +86,12 @@ describe('mobile input and chat polish source contracts', () => {
 
     assertIncludes(css, '--safe-top: env(safe-area-inset-top, 0px);');
     assertIncludes(css, '--safe-bottom: env(safe-area-inset-bottom, 0px);');
+    assertIncludes(css, '--app-footer-height:');
     assertIncludes(css, '--composer-height:');
     assertIncludes(css, '--bubble-max:');
     assertIncludes(css, '.chat-composer-safe');
     assertIncludes(css, '.fixed-compose-safe');
+    assertIncludes(css, 'bottom: var(--app-footer-height);');
     assertIncludes(css, '.chat-log');
     assertIncludes(css, '.chat-bubble');
     assertIncludes(css, '.lesson-chat-scroll-padding');
