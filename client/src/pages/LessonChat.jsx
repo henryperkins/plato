@@ -75,6 +75,14 @@ export default function LessonChat() {
   const [composeText, setComposeText] = useState('');
   const [composeImages, setComposeImages] = useState([]);
 
+  useEffect(() => {
+    const scrollers = [document.documentElement, document.body].filter(Boolean);
+    scrollers.forEach(el => el.classList.add('lesson-chat-scroll-padding'));
+    return () => {
+      scrollers.forEach(el => el.classList.remove('lesson-chat-scroll-padding'));
+    };
+  }, []);
+
   // Pin header when its top edge reaches the viewport top
   useEffect(() => {
     const el = headerRef.current;
@@ -289,7 +297,7 @@ export default function LessonChat() {
               if (urls.length === 0) return null;
               return (
                 <div className="flex justify-end mt-1">
-                  <div className="max-w-[85%] rounded-2xl rounded-br-sm bg-primary p-1.5 flex flex-wrap gap-1">
+                  <div className="chat-bubble rounded-2xl rounded-br-sm bg-primary p-1.5 flex flex-wrap gap-1">
                     {urls.map((url, i) => (
                       <img key={i} src={url} alt={`Your uploaded work ${i + 1}`} className="max-w-full rounded-lg" />
                     ))}
@@ -305,7 +313,7 @@ export default function LessonChat() {
   };
 
   return (
-    <div className="flex flex-col min-h-[calc(100vh-theme(spacing.20))]">
+    <div className="lesson-chat-shell flex flex-col">
       {/* Fixed header clone — appears when inline header scrolls out of view */}
       {headerPinned && (
         <div id="lesson-header-pinned" aria-hidden="true" className="fixed top-0 left-0 right-0 z-50 border-b border-border bg-background px-4 py-2 shadow-md">
@@ -411,7 +419,7 @@ export default function LessonChat() {
 
       {/* Fixed compose overlay — interactive when pinned */}
       {phase && composePinned && (
-        <div className="fixed bottom-9 left-0 right-0 z-50">
+        <div className="fixed-compose-safe fixed left-0 right-0 z-50">
           <ComposeBar
             placeholder={impersonating ? 'Read-only — viewing as another user' : composePlaceholder}
             onSend={handleSend}

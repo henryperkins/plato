@@ -21,7 +21,7 @@ const ChatArea = forwardRef(function ChatArea({ children, scrollTrigger, announc
   return (
     <>
       <div
-        className="p-4 text-base"
+        className="chat-log p-4 text-base"
         role="log"
         tabIndex={0}
         aria-live="off"
@@ -29,7 +29,7 @@ const ChatArea = forwardRef(function ChatArea({ children, scrollTrigger, announc
         aria-description="Use Alt plus Arrow keys to navigate between messages"
         ref={setRefs}
       >
-        <div className="mx-auto max-w-3xl space-y-3">
+        <div className="mx-auto max-w-3xl space-y-2 md:space-y-3">
           {children}
         </div>
         <div ref={bottomRef} aria-hidden="true" />

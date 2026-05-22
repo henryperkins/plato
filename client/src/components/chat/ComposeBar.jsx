@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 
 const MAX_IMAGES = 4;
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // Bedrock 5 MB limit
+const COMPOSER_MAX_ROWS = 8;
 
 function readImageAsDataUrl(file) {
   return new Promise((resolve, reject) => {
@@ -35,7 +36,7 @@ export default function ComposeBar({
   const setImages = onImagesChange || setLocalImages;
   const inputRef = useRef(null);
   const fileRef = useRef(null);
-  const handleResize = useAutoResize();
+  const handleResize = useAutoResize({ maxRows: COMPOSER_MAX_ROWS });
   const inputId = useId();
   const statusId = useId();
   const [loadingCount, setLoadingCount] = useState(0);
@@ -140,7 +141,7 @@ export default function ComposeBar({
   const hasContent = text.trim() || images.length > 0;
 
   return (
-    <div className="px-4 pb-4 pt-2">
+    <div className="chat-composer-safe px-4 pt-2">
       <div className={`mx-auto max-w-3xl rounded-lg border border-input bg-background ${elevated ? 'shadow-lg' : ''}`}>
         {images.length > 0 && (
           <div className="m-2 flex flex-wrap gap-2">
@@ -150,7 +151,7 @@ export default function ComposeBar({
                 <Button
                   variant="secondary"
                   size="icon-xs"
-                  className="absolute -top-1.5 -right-1.5 rounded-full"
+                  className="absolute -top-2 -right-2 size-10 rounded-full md:size-6"
                   onClick={() => removeImage(idx)}
                   aria-label={`Remove ${img.name}`}
                 >
@@ -164,7 +165,7 @@ export default function ComposeBar({
         <textarea
           ref={inputRef}
           id={inputId}
-          className="w-full resize-none bg-transparent px-3 py-2 text-sm outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50"
+          className="w-full resize-none bg-transparent px-3 py-2 text-base leading-6 outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50 md:text-sm md:leading-5"
           rows={1}
           placeholder={placeholder}
           value={text}
@@ -190,6 +191,7 @@ export default function ComposeBar({
               <Button
                 variant="ghost"
                 size="icon-sm"
+                className="size-10 md:size-7"
                 onClick={() => fileRef.current?.click()}
                 disabled={disabled || images.length >= MAX_IMAGES}
                 aria-label={images.length >= MAX_IMAGES
@@ -211,7 +213,7 @@ export default function ComposeBar({
           <Button
             variant="default"
             size="icon-sm"
-            className={`transition-opacity ${hasContent ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+            className={`size-10 md:size-7 transition-opacity ${hasContent ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
             aria-label="Send"
             aria-describedby={allowImages && loadingImages ? statusId : undefined}
             onClick={send}

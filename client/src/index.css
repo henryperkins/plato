@@ -82,6 +82,16 @@
     --sidebar-accent-foreground: oklch(0.985 0 0);
     --sidebar-border: oklch(1 0 0 / 15%);
     --sidebar-ring: oklch(0.985 0 0);
+    --safe-top: env(safe-area-inset-top, 0px);
+    --safe-bottom: env(safe-area-inset-bottom, 0px);
+    --composer-height: 8.5rem;
+    --bubble-max: min(42ch, calc(100vw - 2rem));
+}
+
+@media (min-width: 640px) {
+  :root {
+    --bubble-max: min(68ch, calc(100vw - 4rem));
+  }
 }
 
 .dark {
@@ -121,6 +131,7 @@
 @layer base {
   * {
     @apply border-border outline-ring/50;
+    -webkit-tap-highlight-color: transparent;
   }
   html, body, #root {
     @apply h-full;
@@ -133,6 +144,38 @@
   }
   html {
     @apply font-sans;
+  }
+}
+
+@layer utilities {
+  .chat-composer-safe {
+    padding-bottom: calc(1rem + var(--safe-bottom));
+  }
+
+  .fixed-compose-safe {
+    bottom: 0;
+  }
+
+  .chat-log {
+    overscroll-behavior: contain;
+  }
+
+  .chat-bubble {
+    max-width: var(--bubble-max);
+  }
+
+  .lesson-chat-shell {
+    min-height: calc(100vh - 5rem);
+  }
+
+  .lesson-chat-scroll-padding {
+    scroll-padding-bottom: calc(var(--composer-height) + var(--safe-bottom) + 1rem);
+  }
+
+  @supports (height: 100dvh) {
+    .lesson-chat-shell {
+      min-height: calc(100dvh - 5rem);
+    }
   }
 }
 
@@ -151,4 +194,3 @@
   0% { transform: translate(0, 0) rotate(0deg); opacity: 1; }
   100% { transform: translate(var(--x, 0), var(--y, -200px)) rotate(var(--r, 360deg)); opacity: 0; }
 }
-
