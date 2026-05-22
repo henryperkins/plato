@@ -24,3 +24,15 @@ export function cleanStream(onStream) {
   if (!onStream) return () => {};
   return (partial) => onStream(stripReadiness(partial));
 }
+
+/**
+ * Rebuild a chat-message array into the "User: …\n\nAgent: …" text the
+ * lesson-extractor agent expects. Shared by the lesson editor's finalize
+ * ("Create/Update Lesson") and preview-refresh paths so both feed the
+ * extractor the exact same input.
+ */
+export function buildConversationText(chatMessages) {
+  return (chatMessages || [])
+    .map((m) => `${m.role === 'user' ? 'User' : 'Agent'}: ${m.content}`)
+    .join('\n\n');
+}

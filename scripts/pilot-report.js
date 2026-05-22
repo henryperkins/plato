@@ -101,18 +101,24 @@ function formatBlocklist(openPrs) {
     const issues = linkedIssues(pr.body);
     for (const i of issues) blocked.add(i);
     const ref = issues.length ? issues.map((i) => `#${i}`).join(', ') : '_(no issue ref)_';
-    rows.push(`| #${pr.number} | ${pr.title.replace(/\|/g, '\\|')} | ${ref} |`);
+    // Distinguish pilot-authored PRs from human-authored ones in the table
+    // so the agent sees at a glance which blocks come from earlier pilot
+    // runs and which come from a human contributor mid-flight.
+    const isPilot = (pr.labels || []).some((l) => l.name === 'plato-pilot');
+    const sourceTag = isPilot ? '`plato-pilot`' : '_human_';
+    const escapedTitle = pr.title.replace(/\\/g, '\\\\').replace(/\|/g, '\\|');
+    rows.push(`| #${pr.number} | ${sourceTag} | ${escapedTitle} | ${ref} |`);
   }
 
   const marker = `<!-- PILOT_BLOCKLIST: ${[...blocked].sort((a, b) => a - b).join(',')} -->`;
 
   if (!openPrs.length) {
-    return `${marker}\n_No open pilot PRs. Nothing is blocked._`;
+    return `${marker}\n_No open PRs claim any issue. Nothing is blocked._`;
   }
 
   const table = [
-    '| Open PR | Title | Linked issues |',
-    '|---------|-------|---------------|',
+    '| Open PR | Source | Title | Linked issues |',
+    '|---------|--------|-------|---------------|',
     ...rows,
   ].join('\n');
 
@@ -120,7 +126,7 @@ function formatBlocklist(openPrs) {
     ? `**Issues blocked from re-picking:** ${[...blocked].sort((a, b) => a - b).map((i) => `#${i}`).join(', ')}`
     : '_No issues linked from open PRs._';
 
-  return `${marker}\n\n${blockedList}\n\n${table}\n\n**Rule:** Do NOT open a PR that references any blocked issue. If the best signal points at a blocked issue, pick a different signal or SKIP.`;
+  return `${marker}\n\n${blockedList}\n\n${table}\n\n**Rule:** Do NOT open a PR that references any blocked issue — including issues already claimed by a human-authored PR. If the best signal points at a blocked issue, pick a different signal or SKIP.`;
 }
 
 function formatReadyIssues(issues, closedPilotPrs) {
@@ -144,10 +150,20 @@ function formatReadyIssues(issues, closedPilotPrs) {
   const sections = [];
   for (const tier of [...byTier.keys()].sort()) {
     sections.push(`### Tier ${tier}`);
-    for (const issue of byTier.get(tier)) {
+    // Within a tier, list community-authored issues first (anything not
+    // authored by `plato-pilot` itself). The pilot prompt picks community
+    // issues before self-filed ones, so surfacing them up top here makes
+    // the priority order obvious in the report.
+    const tierIssues = byTier.get(tier);
+    const community = tierIssues.filter((i) => i.author?.login !== 'plato-pilot');
+    const selfFiled = tierIssues.filter((i) => i.author?.login === 'plato-pilot');
+    for (const issue of [...community, ...selfFiled]) {
       const attempted = attemptedIssues.get(issue.number);
       const attemptNote = attempted?.length ? ` — ⚠️ previously attempted in closed PRs: ${attempted.map((n) => `#${n}`).join(', ')}` : '';
-      sections.push(`- #${issue.number}: ${issue.title}${attemptNote}`);
+      const authorTag = issue.author?.login === 'plato-pilot'
+        ? ' _(self-filed)_'
+        : ` (by @${issue.author?.login || 'unknown'})`;
+      sections.push(`- #${issue.number}: ${issue.title}${authorTag}${attemptNote}`);
     }
   }
   return sections.join('\n');
@@ -199,6 +215,31 @@ function formatGroups(logs) {
   ].join('\n');
 }
 
+// Write-path server errors mean a learner's work may have failed to save.
+// This callout is deliberately prominent and uses fixed wording the pilot's
+// "severity interrupt" rule keys off — a failed `/v1/sync` write is silent
+// learner data loss with no named author to file an issue for it (#195).
+function formatDataLossWatch(logs) {
+  const hits = (logs.groups || []).filter((g) => {
+    if (g.code !== 'unhandled_error') return false;
+    const m = g.sample?.meta || {};
+    const method = String(m.method || '').toUpperCase();
+    return (method === 'PUT' || method === 'POST') && String(m.path || '').startsWith('/v1/sync');
+  });
+  if (!hits.length) {
+    return '_No write-path (`/v1/sync`) server errors in the window._';
+  }
+  const lines = hits.map((g) => {
+    const m = g.sample?.meta || {};
+    const err = String(m.error || '').replace(/\s+/g, ' ').slice(0, 140);
+    return `- ⚠️ \`${g.code}\` ×${g.count} — \`${m.method} ${m.path}\` — _${err}_ (first ${g.firstSeen}, last ${g.lastSeen})`;
+  });
+  return [
+    '**SEVERITY INTERRUPT — possible data loss.** Write requests are failing server-side; a learner\'s saved work may not be persisting. Per the pilot picking rules this outranks the entire issue queue — fix it or escalate it (loud SKIP), never defer.',
+    ...lines,
+  ].join('\n');
+}
+
 function formatCloudWatchStatus(logs) {
   if (logs.cloudwatch?.error) {
     return `⚠️ CloudWatch fetch failed: \`${logs.cloudwatch.error}\`. In-process buffer errors above are still reliable; Lambda runtime errors (timeouts, uncaught panics before onError) may be missing.`;
@@ -226,12 +267,30 @@ async function main() {
   const openPilotPrs = pilotPrs.filter((p) => p.state === 'OPEN');
   const closedPilotPrs = pilotPrs.filter((p) => p.state === 'CLOSED');
 
+  // Blocklist construction needs every open PR that references an issue,
+  // not just `plato-pilot`-labeled ones. Without this, a maintainer-authored
+  // PR that handles a `ready-for-pilot` issue (without applying the label)
+  // doesn't block the pilot from picking the same issue, leading to dup PRs
+  // (see #160 for an example). Fetch all open PRs once and filter in memory
+  // to the ones that actually link an issue via "Fixes/Closes/Resolves #N".
+  const allOpenPrs = ghJson([
+    'pr', 'list',
+    '--state', 'open',
+    '--limit', '100',
+    '--json', 'number,title,body,labels',
+  ]);
+  const openIssueLinkedPrs = allOpenPrs.filter((p) => linkedIssues(p.body).length > 0);
+
   const readyIssues = ghJson([
     'issue', 'list',
     '--state', 'open',
     '--label', 'ready-for-pilot',
     '--limit', '30',
-    '--json', 'number,title,body,createdAt',
+    // `author` is required so the pilot can prioritize community-filed
+    // issues over self-filed (plato-pilot) ones. The report's tier sections
+    // surface the author so the agent doesn't need a separate `gh issue
+    // view` round trip per candidate.
+    '--json', 'number,title,body,createdAt,author',
   ]);
 
   const onTargetRate = kpis.totalCompletions
@@ -262,6 +321,10 @@ async function main() {
 
 _Note: "Over target" means exchanges > target — not a failure. Lessons always run until the coach awards progress 10. If on-target rate is low, diagnose **lesson design** or **coach prompt quality**, not pacing enforcement — never introduce forced closures._
 
+## Data-loss watch
+
+${formatDataLossWatch(logs)}
+
 ## Errors by code (last ${logs.windowHours ?? 24}h)
 
 Errors: ${logs.counts?.error ?? 0} · Warnings: ${logs.counts?.warn ?? 0} · Buffer: ${logs.buffer?.used ?? 0}/${logs.buffer?.size ?? 0}
@@ -272,9 +335,9 @@ ${formatGroups(logs)}
 
 ${formatCloudWatchStatus(logs)}
 
-## Open pilot PRs (BLOCKLIST)
+## Open PRs claiming issues (BLOCKLIST)
 
-${formatBlocklist(openPilotPrs)}
+${formatBlocklist(openIssueLinkedPrs)}
 
 ## Pilot track record (last 30 days)
 

@@ -17,7 +17,7 @@ globalThis.localStorage = {
 };
 globalThis.fetch = async () => ({ ok: false, status: 404 });
 
-const { assertImageWithinBedrockLimit } = await import('../src/lib/lessonEngine.js');
+const { assertImageWithinBedrockLimit, normalizeImageDataUrls } = await import('../src/lib/lessonEngine.js');
 
 // Build a data URL whose base64 body decodes (per length*3/4) to exactly
 // `bytes` bytes. The guard uses the same math so the round-trip is exact.
@@ -63,5 +63,36 @@ describe('assertImageWithinBedrockLimit', () => {
     // Round to the nearest multiple of 3 (5639061) for the test encoder.
     const oversized = imageDataUrlOfSize(5639061);
     assert.throws(() => assertImageWithinBedrockLimit(oversized), /Image is too large/);
+  });
+});
+
+describe('normalizeImageDataUrls', () => {
+  it('returns an empty array for null / undefined / empty string', () => {
+    assert.deepEqual(normalizeImageDataUrls(null), []);
+    assert.deepEqual(normalizeImageDataUrls(undefined), []);
+    assert.deepEqual(normalizeImageDataUrls(''), []);
+  });
+
+  it('wraps a single string in an array (backward compat)', () => {
+    assert.deepEqual(
+      normalizeImageDataUrls('data:image/png;base64,AAA'),
+      ['data:image/png;base64,AAA']
+    );
+  });
+
+  it('passes an array through unchanged when all entries are truthy', () => {
+    const arr = ['data:image/png;base64,AAA', 'data:image/jpeg;base64,BBB'];
+    assert.deepEqual(normalizeImageDataUrls(arr), arr);
+  });
+
+  it('filters nullish entries out of arrays', () => {
+    assert.deepEqual(
+      normalizeImageDataUrls(['data:image/png;base64,AAA', null, '', undefined, 'data:image/png;base64,BBB']),
+      ['data:image/png;base64,AAA', 'data:image/png;base64,BBB']
+    );
+  });
+
+  it('returns an empty array for an empty input array', () => {
+    assert.deepEqual(normalizeImageDataUrls([]), []);
   });
 });

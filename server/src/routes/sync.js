@@ -7,7 +7,7 @@ const sync = new Hono();
 sync.use('/v1/sync', authenticate);
 sync.use('/v1/sync/*', authenticate);
 
-const VALID_DATA_KEYS = /^(profile|profileSummary|preferences|work|progress:.+|lessonKB:.+|activities:.+|activityKBs:.+|drafts:.+|messages:.+|lessons:.+|onboardingComplete)$/;
+const VALID_DATA_KEYS = /^(profile|profileSummary|preferences|work|progress:.+|lessonKB:.+|activities:.+|activityKBs:.+|drafts:.+|messages:.+|screenshot:.+|lessons:.+|onboardingComplete)$/;
 
 // Keep user record name in sync with extension preferences
 async function syncNameIfNeeded(userId, dataKey, data) {
@@ -20,14 +20,82 @@ function validateDataKey(dataKey) {
   return VALID_DATA_KEYS.test(dataKey);
 }
 
-// GET /v1/sync — get all synced data. Plugin-owned per-user records
-// (`userMeta:<pluginId>`) are filtered out — they're admin-only by default,
-// and the plugin's own routes are responsible for any learner exposure.
+// Maintain denormalized activity counters on the user record (#136). Called
+// after each successful sync write. `oldStatus` is the lessonKB status as
+// it existed *before* the write (or null if no prior record / non-lessonKB);
+// transitions only count on first flip to 'completed' so post-completion
+// feedback turns don't double-count. Failures are swallowed — the primary
+// write already succeeded and stat fields self-heal via lazy backfill in
+// the admin endpoint. Note: lastActiveAt is NOT touched here — per the
+// denormalization policy in CLAUDE.md, hot-path writes (every learner
+// message) would cause user-table write amplification. It lives on the
+// auth route instead, updated on login + refresh.
+async function applyActivityEffects(userId, dataKey, oldStatus, data) {
+  try {
+    if (dataKey.startsWith('lessonKB:')) {
+      if (oldStatus !== 'completed' && data?.status === 'completed') {
+        await db.incrementUserCounter(userId, 'lessonsCompleted', 1);
+      }
+    }
+  } catch { /* swallow — activity counters are best-effort */ }
+}
+
+// Pre-read the status of a lessonKB before writing it, so the post-write
+// hook can detect a first-time transition to 'completed'. Skips the read
+// for non-lessonKB keys to keep the hot path lean. **Errors must not
+// propagate** — a failed pre-read just means we might miss one counter
+// increment (lazy backfill heals it), but the learner's lesson write
+// must never fail because of an ancillary read.
+async function readOldLessonKBStatus(userId, dataKey) {
+  if (!dataKey.startsWith('lessonKB:')) return null;
+  try {
+    const existing = await db.getSyncData(userId, dataKey);
+    return existing?.data?.status ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Resolve which userId a request should read on behalf of.
+ *
+ * Admins can read another user's data by passing `?asUserId=<id>` (the
+ * "View as User" feature — admin-only audit of a learner's classroom).
+ * Non-admins passing `asUserId` get 403; anyone else falls back to their
+ * own JWT-derived userId. Writes never honor `asUserId` — callers must
+ * reject the request before reaching the DB.
+ */
+function resolveReadUserId(c) {
+  const url = new URL(c.req.url);
+  const asUserId = url.searchParams.get('asUserId');
+  if (!asUserId) return { userId: c.get('userId'), impersonating: false };
+  if (c.get('role') !== 'admin') {
+    return { error: c.json({ error: 'Admin access required to read as another user' }, 403) };
+  }
+  return { userId: asUserId, impersonating: true };
+}
+
+function rejectWriteIfImpersonating(c) {
+  const url = new URL(c.req.url);
+  if (url.searchParams.get('asUserId')) {
+    return c.json({ error: 'Writes are not allowed while viewing as another user' }, 403);
+  }
+  return null;
+}
+
+// GET /v1/sync — get all synced data. Two record families are filtered out:
+//   - `userMeta:<pluginId>` — plugin-owned, admin-only by default; the
+//     plugin's own routes are responsible for any learner exposure.
+//   - `screenshot:<key>` — pasted images, stored one-per-record and often
+//     hundreds of KB each. Bundling them into this bulk payload (fetched on
+//     every login *and* every tab refocus) would be wasteful; they're
+//     fetched on demand by key via GET /v1/sync/:dataKey instead.
 sync.get('/v1/sync', async (c) => {
-  const userId = c.get('userId');
-  const items = await db.getAllSyncData(userId);
+  const resolved = resolveReadUserId(c);
+  if (resolved.error) return resolved.error;
+  const items = await db.getAllSyncData(resolved.userId);
   return c.json(items
-    .filter((item) => !item.dataKey?.startsWith('userMeta:'))
+    .filter((item) => !item.dataKey?.startsWith('userMeta:') && !item.dataKey?.startsWith('screenshot:'))
     .map((item) => ({
       dataKey: item.dataKey,
       data: item.data,
@@ -38,14 +106,15 @@ sync.get('/v1/sync', async (c) => {
 
 // GET /v1/sync/:dataKey — get specific item
 sync.get('/v1/sync/:dataKey', async (c) => {
-  const userId = c.get('userId');
+  const resolved = resolveReadUserId(c);
+  if (resolved.error) return resolved.error;
   const dataKey = c.req.param('dataKey');
 
   if (!validateDataKey(dataKey)) {
     return c.json({ error: 'Invalid dataKey' }, 400);
   }
 
-  const item = await db.getSyncData(userId, dataKey);
+  const item = await db.getSyncData(resolved.userId, dataKey);
   if (!item) {
     return c.json({ dataKey, data: null, version: 0 });
   }
@@ -59,6 +128,8 @@ sync.get('/v1/sync/:dataKey', async (c) => {
 
 // PUT /v1/sync/batch — batch upsert (must be before :dataKey route)
 sync.put('/v1/sync/batch', async (c) => {
+  const reject = rejectWriteIfImpersonating(c);
+  if (reject) return reject;
   const userId = c.get('userId');
   const { items } = await c.req.json();
 
@@ -75,8 +146,10 @@ sync.put('/v1/sync/batch', async (c) => {
       return { dataKey: item.dataKey, status: 'error', error: 'Invalid item' };
     }
     try {
+      const oldStatus = await readOldLessonKBStatus(userId, item.dataKey);
       const result = await db.putSyncData(userId, item.dataKey, item.data, item.version || 0);
       await syncNameIfNeeded(userId, item.dataKey, item.data);
+      await applyActivityEffects(userId, item.dataKey, oldStatus, item.data);
       return { dataKey: item.dataKey, status: 'ok', version: result.version };
     } catch (err) {
       if (err.name === 'ConditionalCheckFailedException') {
@@ -95,6 +168,8 @@ sync.put('/v1/sync/batch', async (c) => {
 
 // PUT /v1/sync/:dataKey — upsert data with optimistic locking
 sync.put('/v1/sync/:dataKey', async (c) => {
+  const reject = rejectWriteIfImpersonating(c);
+  if (reject) return reject;
   const userId = c.get('userId');
   const dataKey = c.req.param('dataKey');
 
@@ -108,8 +183,10 @@ sync.put('/v1/sync/:dataKey', async (c) => {
   }
 
   try {
+    const oldStatus = await readOldLessonKBStatus(userId, dataKey);
     const result = await db.putSyncData(userId, dataKey, data, version || 0);
     await syncNameIfNeeded(userId, dataKey, data);
+    await applyActivityEffects(userId, dataKey, oldStatus, data);
     return c.json({ dataKey, version: result.version, updatedAt: result.updatedAt });
   } catch (err) {
     if (err.name === 'ConditionalCheckFailedException') {
@@ -129,6 +206,8 @@ sync.put('/v1/sync/:dataKey', async (c) => {
 // they're cleaned up only via account deletion (DELETE /v1/me / admin-delete),
 // which fires `userDeleted` first so plugins can react.
 sync.delete('/v1/sync', async (c) => {
+  const reject = rejectWriteIfImpersonating(c);
+  if (reject) return reject;
   const userId = c.get('userId');
   const items = await db.getAllSyncData(userId);
   const deletable = items.filter((item) => !item.dataKey?.startsWith('userMeta:'));
@@ -138,6 +217,8 @@ sync.delete('/v1/sync', async (c) => {
 
 // DELETE /v1/sync/:dataKey
 sync.delete('/v1/sync/:dataKey', async (c) => {
+  const reject = rejectWriteIfImpersonating(c);
+  if (reject) return reject;
   const userId = c.get('userId');
   const dataKey = c.req.param('dataKey');
 

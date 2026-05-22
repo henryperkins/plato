@@ -18,6 +18,18 @@ jobs:
         with:
           fetch-depth: 1
 
+      # Prevent the agent / claude-code-action from committing its own workspace
+      # artifacts (e.g. .claude-pr/CLAUDE.md, a context copy the action stages
+      # inside the checkout). Writing to .git/info/exclude is per-clone — no
+      # tracked .gitignore change required, and `git add -A` will respect it.
+      - name: Ignore Claude Action workspace artifacts
+        run: |
+          mkdir -p .git/info
+          {
+            echo '.claude-pr/'
+            echo '.claude/'
+          } >> .git/info/exclude
+
       - uses: actions/setup-node@v4
         with:
           node-version: 20
@@ -96,7 +108,7 @@ jobs:
             - **Tier 4 — Data integrity**: sync-data consistency, auth, lesson visibility
             - **Tier 5 — DevOps**: CI/CD, AWS infra, deploy tooling
 
-            When a high-count error would land in Tier 4/5 and a concrete Tier 1/2 issue is actionable, **pick the Tier 1/2 issue**. Volume is not the only axis — alignment to the project's mission (serving learners) matters more.
+            When a high-count error would land in Tier 4/5 and a concrete Tier 1/2 issue is actionable, **pick the Tier 1/2 issue**. Volume is not the only axis — alignment to the project's mission (serving learners) matters more. **Exception:** a *data-loss-class* error — a write request failing server-side — is never deprioritized this way. A learner losing saved work is the most direct learner-experience harm there is; see the severity interrupt in Step 2.
 
             ## Step 2: Triage — pick ONE thing or SKIP (1 turn)
 
@@ -105,16 +117,25 @@ jobs:
             2. If the report's "Looped issues" section names an issue, **DO NOT PICK IT**. Two or more closed-unmerged PRs already tried and failed — the reporter needs to clarify before another attempt makes sense.
             3. Do NOT violate any anti-goal (see below).
 
-            **Signal weighting:**
-            - A Tier 1/2 `ready-for-pilot` issue with specifics (exact string change, screenshot, error message) → strongest signal
-            - A high-count server error code tied to a learner-facing surface → strong signal
-            - A Tier 1/2 issue overlapping a log error → strongest combined signal
-            - A Tier 4/5 error with no Tier 1/2 alternative → acceptable, but narrow the fix
-            - A Tier 3+ issue when Tier 1/2 is covered or missing → acceptable if clearly scoped
+            **Severity interrupt — evaluate this BEFORE the picking order below.**
+            Scan the report's "Errors by code" table and its "Data-loss watch" callout. If there is an `unhandled_error` (or any 5xx) whose sample is a **write request** — `PUT` or `POST` to `/v1/sync`, `/v1/ai`, or `/v1/auth` — treat it as a possible **data-loss incident**: a learner's work may be failing to save server-side. It outranks the entire `ready-for-pilot` issue queue regardless of count — even a count of 1. Either open a fix PR for it, or — if it cannot be safely diagnosed and fixed in one PR — SKIP with the loud, specific line `SKIP: ESCALATING <code> on <METHOD path> — N occurrences, possible data loss, needs maintainer`. A data-loss-class error is NEVER deferred behind a one-line issue and NEVER skipped silently. (This rule exists because a 400 KB write-size bug lost learner conversations for 8 days while the pilot picked one-line copy issues — #195.)
+
+            **Strict picking order — pick the first match that exists, do not skip ahead because something later looks higher-impact:**
+
+            1. **Community-authored `ready-for-pilot` issue.** Any issue in the report's "Tier" sections whose author is *not* `plato-pilot` (the report tags these `(by @username)`; self-filed ones are tagged `_(self-filed)_`). When multiple exist, pick by Tier (1 > 2 > 3 > 4 > 5), then by oldest `createdAt`. **Community issues take priority over KPIs and log errors, even when those would have a larger numeric impact.** Someone took the time to file a clear actionable request — that's the strongest signal of an actual learner or admin pain point.
+
+            2. **Self-filed `ready-for-pilot` issue** (author == `plato-pilot`). Same tier + age tie-breaks. These are maintenance tickets the bot opened from log analysis on a previous run.
+
+            3. **High-count server error code** tied to a learner-facing surface (Tier 1–3 by source path). Only fall to this when no `ready-for-pilot` issues exist, or all of them are blocked by the dup-list / loop list.
+
+            4. **KPI signal** that points to a lesson-design or coach-prompt diagnosis. Same fallback condition as (3). Never use a KPI to justify a forced-closure or hard-cutoff change (see anti-goals).
+
+            Volume is not a tie-breaker against authored issues. A 50-line server error and a one-line community issue both count as "one signal"; the community issue wins because it has a named author with context the bot does not. This applies to *ordinary* errors only — a data-loss-class error (the severity interrupt above) outranks everything, because silent loss of learner work has no named author to file it.
 
             **SKIP outcomes (exit 0 with a single line to stdout):**
-            - `SKIP: all Tier 1/2 signals are covered by open pilot PRs (#N, #M)` — blocklist ate everything worth picking
-            - `SKIP: no actionable signal today` — nothing meets the hard rules or signal weighting
+            - `SKIP: ESCALATING <code> on <METHOD path> — N occurrences, possible data loss, needs maintainer` — the severity interrupt fired but the error can't be safely fixed in one PR; this is a loud escalation, not a silent skip
+            - `SKIP: all community ready-for-pilot issues are covered by open pilot PRs (#N, #M)` — blocklist ate every community-authored candidate; falling further would mean working on lower-priority signals while real asks wait
+            - `SKIP: no actionable signal today` — nothing meets the hard rules
             - `SKIP: only candidate is an anti-goal (<describe>)` — the loudest signal would force a bad fix
 
             Print the SKIP line and stop. Do not invent work, do not "find something small to ship." SKIP is success.
@@ -137,7 +158,14 @@ jobs:
 
             ## Step 4: Verify and ship (≤5 turns)
             - Run `cd server && npm ci && npm test` — all tests must pass
-            - Commit on your branch, then push: `git push -u origin "$BRANCH"`
+            - **When the pick is issue-driven**, credit the issue author on the commit so they appear as a contributor when the PR merges:
+              1. Look up the issue author's login: `AUTHOR=$(gh issue view <N> --json author --jq .author.login)`
+              2. Add a `Co-Authored-By:` trailer to the commit message, separated from the body by a blank line:
+                 ```
+                 Co-Authored-By: <login> <login@users.noreply.github.com>
+                 ```
+                 GitHub uses this trailer to credit the issue author on the merge commit. If the author is `plato-pilot` (a self-filed issue), skip the trailer.
+            - Commit on your branch (with the trailer above when applicable), then push: `git push -u origin "$BRANCH"`
             - Create a PR with `gh pr create --head "$BRANCH" --label plato-pilot`:
               - Title: imperative mood, under 70 chars
               - Reference the issue with `Fixes #N` in the PR body (required when an issue drives the pick — the post-action dup-check reads this)

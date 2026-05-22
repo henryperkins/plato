@@ -2,14 +2,15 @@ import { Hono } from 'hono';
 import db from '../lib/db.js';
 import { authenticate } from '../middleware/authenticate.js';
 import { requireAdmin } from '../middleware/requireAdmin.js';
-import { generateInviteToken } from '../lib/crypto.js';
-import { sendInviteEmail } from '../lib/email.js';
+import { generateInviteToken, generateResetToken, hashToken } from '../lib/crypto.js';
+import { sendInviteEmail, sendResetEmail } from '../lib/email.js';
 import { validateUsername } from './auth.js';
-import { MIN_OBJECTIVES, MAX_OBJECTIVES, MAX_EXCHANGES } from '../lib/lesson-limits.js';
+import { MIN_OBJECTIVES, MAX_OBJECTIVES, MAX_EXCHANGES, MINS_PER_EXCHANGE } from '../lib/lesson-limits.js';
 import { logger } from '../lib/logger.js';
 import { fetchCloudWatchLogs } from '../lib/cloudwatch-logs.js';
 import { pluginRegistry } from '../lib/plugins/registry.js';
 import { emit as emitHook } from '../lib/plugins/hooks.js';
+import { classifyCache, kickoffAsyncRefresh } from '../lib/lesson-stats-cache.js';
 
 const admin = new Hono();
 
@@ -41,12 +42,34 @@ function normalizeStatus(status, hasMarkdown = true) {
   return 'private';
 }
 
+// Count non-draft lessons visible to a given user (public + private-shared).
+// Mirrors the visibility logic in `/v1/lessons` (content.js).
+function countLessonsAvailableTo(userId, systemItems) {
+  let count = 0;
+  for (const i of systemItems) {
+    if (!i.dataKey?.startsWith('lesson:')) continue;
+    const status = normalizeStatus(i.data?.status, !!i.data?.markdown);
+    if (status === 'draft') continue;
+    if (status === 'public' || (Array.isArray(i.data?.sharedWith) && i.data.sharedWith.includes(userId))) {
+      count++;
+    }
+  }
+  return count;
+}
+
 admin.use('/v1/admin/*', authenticate, requireAdmin);
 
 // GET /v1/admin/users
+// Pass `?include=stats` to enrich each row with `lessonsCompleted`,
+// `lessonsAvailable`, and `lastActiveAt`. Counters are denormalized onto
+// the user record by sync-route hooks (so reads are O(1) per user, no
+// scans). Legacy users (created before #136) get lazy-backfilled on
+// first read; once backfilled, every subsequent read is fast.
 admin.get('/v1/admin/users', async (c) => {
+  const url = new URL(c.req.url);
+  const includeStats = (url.searchParams.get('include') || '').split(',').includes('stats');
   const users = await db.listAllUsers();
-  return c.json(users.map((p) => ({
+  const baseRow = (p) => ({
     userId: p.userId,
     email: p.email,
     username: p.username,
@@ -55,7 +78,49 @@ admin.get('/v1/admin/users', async (c) => {
     role: p.role,
     slackUserId: p.slackUserId || null,
     createdAt: p.createdAt,
-  })));
+  });
+  if (!includeStats) {
+    return c.json(users.map(baseRow));
+  }
+  const systemItems = await db.getAllSyncData('_system');
+  // Lazy-backfill any users whose counters were never initialized. One-time
+  // scan per user; subsequent reads return the stored counters.
+  const enriched = await Promise.all(users.map(async (p) => {
+    let lessonsCompleted = p.lessonsCompleted;
+    let lastActiveAt = p.lastActiveAt || null;
+    if (lessonsCompleted == null || lastActiveAt === null) {
+      const items = await db.getAllSyncData(p.userId);
+      let counted = 0;
+      let lastActiveMs = 0;
+      for (const item of items) {
+        if (item.dataKey?.startsWith('lessonKB:') && item.data?.status === 'completed') {
+          counted++;
+        } else if (item.dataKey?.startsWith('messages:') && Array.isArray(item.data)) {
+          for (const m of item.data) {
+            const t = typeof m?.timestamp === 'number' ? m.timestamp
+              : typeof m?.timestamp === 'string' ? Date.parse(m.timestamp)
+              : NaN;
+            if (Number.isFinite(t) && t > lastActiveMs) lastActiveMs = t;
+          }
+        }
+      }
+      if (lessonsCompleted == null) {
+        lessonsCompleted = counted;
+        await db.setUserActivityField(p.userId, 'lessonsCompleted', counted).catch(() => {});
+      }
+      if (lastActiveAt === null && lastActiveMs > 0) {
+        lastActiveAt = new Date(lastActiveMs).toISOString();
+        await db.setUserActivityField(p.userId, 'lastActiveAt', lastActiveAt).catch(() => {});
+      }
+    }
+    return {
+      ...baseRow(p),
+      lessonsCompleted: lessonsCompleted ?? 0,
+      lessonsAvailable: countLessonsAvailableTo(p.userId, systemItems),
+      lastActiveAt,
+    };
+  }));
+  return c.json(enriched);
 });
 
 // GET /v1/admin/users/:userId
@@ -73,6 +138,57 @@ admin.get('/v1/admin/users/:userId', async (c) => {
     createdAt: user.createdAt,
     updatedAt: user.updatedAt,
   });
+});
+
+// POST /v1/admin/impersonation/start — admin "View as User" entry point.
+// Verifies the target exists, brackets the session in audit_log so cross-user
+// reads downstream (`?asUserId=` on /v1/sync, /v1/lessons, etc.) are
+// accountable, and returns the target's display profile for the banner UI.
+// Per-read audit entries would spam the log; bracket entries are sufficient
+// at the same granularity as `user_deleted`.
+admin.post('/v1/admin/impersonation/start', async (c) => {
+  const { targetUserId } = await c.req.json();
+  if (!targetUserId) {
+    return c.json({ error: 'targetUserId is required' }, 400);
+  }
+  const target = await db.getUserById(targetUserId);
+  if (!target) {
+    return c.json({ error: 'Target user not found' }, 404);
+  }
+  const adminUser = c.get('user');
+  await db.createAuditLog({
+    action: 'admin_view_as_user_started',
+    userId: target.userId,
+    email: target.email,
+    performedBy: adminUser.userId,
+    details: { targetUsername: target.username, targetName: target.name },
+  });
+  return c.json({
+    userId: target.userId,
+    email: target.email,
+    username: target.username,
+    name: target.name,
+  });
+});
+
+// POST /v1/admin/impersonation/end — closes the audit-log bracket. Best-effort:
+// if the admin closes the tab without calling this, the session simply lacks
+// an end entry; the start entry is the source of truth for "an admin looked".
+admin.post('/v1/admin/impersonation/end', async (c) => {
+  const { targetUserId } = await c.req.json().catch(() => ({}));
+  const adminUser = c.get('user');
+  let target = null;
+  if (targetUserId) {
+    target = await db.getUserById(targetUserId);
+  }
+  await db.createAuditLog({
+    action: 'admin_view_as_user_ended',
+    userId: target?.userId || targetUserId || null,
+    email: target?.email || null,
+    performedBy: adminUser.userId,
+    details: target ? { targetUsername: target.username, targetName: target.name } : null,
+  });
+  return c.json({ ok: true });
 });
 
 // POST /v1/admin/invites — create invite and send email
@@ -249,6 +365,20 @@ admin.put('/v1/admin/users/:userId/role', async (c) => {
   return c.json({ ok: true, role });
 });
 
+// POST /v1/admin/users/:userId/reset-password
+// Admin initiates password reset for a user by sending them a reset email.
+admin.post('/v1/admin/users/:userId/reset-password', async (c) => {
+  const userId = c.req.param('userId');
+  const user = await db.getUserById(userId);
+  if (!user) {
+    return c.json({ error: 'User not found' }, 404);
+  }
+  const token = generateResetToken();
+  await db.storeResetToken(hashToken(token), user.userId);
+  await sendResetEmail(user.email, token);
+  return c.json({ ok: true });
+});
+
 // GET /v1/admin/settings
 admin.get('/v1/admin/settings', async (c) => {
   const item = await db.getSyncData('_system', 'settings');
@@ -401,6 +531,7 @@ admin.get('/v1/admin/lessons', async (c) => {
       isBuiltIn: i.data.isBuiltIn || false,
       status: normalizeStatus(i.data.status, !!i.data.markdown),
       sharedWith: i.data.sharedWith || [],
+      course: i.data.course || null,
       createdByName: i.data.createdByName || null,
       updatedByName: i.data.updatedByName || null,
       updatedAt: i.updatedAt,
@@ -444,12 +575,21 @@ admin.put('/v1/admin/lessons/:lessonId', async (c) => {
   if (sharedWith.length > 0 && (!Array.isArray(sharedWith) || !sharedWith.every(id => typeof id === 'string'))) {
     return c.json({ error: 'sharedWith must be an array of user ID strings' }, 400);
   }
+  // course is an optional string courseId or null. Don't validate that the
+  // courseId points to an existing course — DELETE on a course cascades to
+  // clear it from lessons, but we tolerate transient drift.
+  let course = body.course !== undefined ? body.course : (current?.data?.course ?? null);
+  if (course !== null && course !== undefined && typeof course !== 'string') {
+    return c.json({ error: 'course must be a string courseId or null' }, 400);
+  }
+  if (course === '') course = null;
   const data = {
     markdown: markdownToValidate || '',
     name: body.name || current?.data?.name || lessonId,
     isBuiltIn: body.isBuiltIn || false,
     status: newStatus,
     sharedWith,
+    course,
     conversation: body.conversation !== undefined ? body.conversation : (current?.data?.conversation || null),
     readiness: body.readiness !== undefined ? body.readiness : (current?.data?.readiness ?? null),
     updatedBy: adminUser.userId,
@@ -481,6 +621,129 @@ admin.delete('/v1/admin/lessons/:lessonId', async (c) => {
   const item = await db.getSyncData('_system', `lesson:${lessonId}`);
   if (!item) return c.json({ error: 'Lesson not found' }, 404);
   await db.deleteSyncData('_system', `lesson:${lessonId}`);
+  return c.json({ ok: true });
+});
+
+// ── Courses ──
+//
+// Courses are an optional taxonomy for grouping lessons. Each course is a first-class
+// _system:course:<id> sync-data record with { name }. Each lesson optionally carries
+// a `course` field (the course's id). Courses are pure organization — they don't carry
+// their own visibility/ACL; lesson visibility (public/private/draft + sharedWith) is
+// unchanged. Coach receives course { name } in its context JSON when a lesson belongs
+// to one.
+
+const COURSE_NAME_MAX = 80;
+
+function validateCourseBody(body) {
+  if (!body || typeof body !== 'object') return 'Request body is required';
+  const name = typeof body.name === 'string' ? body.name.trim() : '';
+  if (!name) return 'Course name is required';
+  if (name.length > COURSE_NAME_MAX) return `Course name must be ${COURSE_NAME_MAX} characters or fewer`;
+  return null;
+}
+
+// GET /v1/admin/courses — list all courses with a per-course lesson count
+admin.get('/v1/admin/courses', async (c) => {
+  const items = await db.getAllSyncData('_system');
+  const lessonCounts = new Map();
+  for (const i of items) {
+    if (!i.dataKey.startsWith('lesson:')) continue;
+    const cid = i.data?.course;
+    if (cid) lessonCounts.set(cid, (lessonCounts.get(cid) || 0) + 1);
+  }
+  const courses = items
+    .filter(i => i.dataKey.startsWith('course:'))
+    .map(i => {
+      const courseId = i.dataKey.slice('course:'.length);
+      return {
+        courseId,
+        name: i.data.name || courseId,
+        createdByName: i.data.createdByName || null,
+        updatedByName: i.data.updatedByName || null,
+        updatedAt: i.updatedAt,
+        lessonCount: lessonCounts.get(courseId) || 0,
+      };
+    })
+    .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
+  return c.json(courses);
+});
+
+// GET /v1/admin/courses/:courseId
+admin.get('/v1/admin/courses/:courseId', async (c) => {
+  const courseId = c.req.param('courseId');
+  const item = await db.getSyncData('_system', `course:${courseId}`);
+  if (!item) return c.json({ error: 'Course not found' }, 404);
+  return c.json({ courseId, ...item.data, updatedAt: item.updatedAt });
+});
+
+// PUT /v1/admin/courses/:courseId — create or update
+admin.put('/v1/admin/courses/:courseId', async (c) => {
+  const courseId = c.req.param('courseId');
+  const body = await c.req.json();
+  const adminUser = c.get('user');
+  const err = validateCourseBody(body);
+  if (err) return c.json({ error: err }, 400);
+  const trimmedName = body.name.trim();
+
+  // Reject duplicate names (case-insensitive) across other courses. Lookups are
+  // cheap — we already iterate _system syncdata for the list endpoint and
+  // there's typically only a handful of courses.
+  const items = await db.getAllSyncData('_system');
+  for (const i of items) {
+    if (!i.dataKey.startsWith('course:')) continue;
+    const otherId = i.dataKey.slice('course:'.length);
+    if (otherId === courseId) continue;
+    if ((i.data?.name || '').trim().toLowerCase() === trimmedName.toLowerCase()) {
+      return c.json({ error: 'A course with that name already exists' }, 409);
+    }
+  }
+
+  const current = await db.getSyncData('_system', `course:${courseId}`);
+  const now = new Date().toISOString();
+  const data = {
+    name: trimmedName,
+    createdBy: current?.data?.createdBy || adminUser.userId,
+    createdByName: current?.data?.createdByName || adminUser.username || adminUser.email,
+    createdAt: current?.data?.createdAt || now,
+    updatedBy: adminUser.userId,
+    updatedByName: adminUser.username || adminUser.email,
+  };
+  await db.putSyncData('_system', `course:${courseId}`, data, current?.version || 0);
+  return c.json({ courseId, ok: true });
+});
+
+// DELETE /v1/admin/courses/:courseId — delete + cascade-clear `course` on lessons
+admin.delete('/v1/admin/courses/:courseId', async (c) => {
+  const courseId = c.req.param('courseId');
+  const item = await db.getSyncData('_system', `course:${courseId}`);
+  if (!item) return c.json({ error: 'Course not found' }, 404);
+
+  // Snapshot the affected lesson keys *before* the delete, so a concurrent
+  // /v1/lessons fetch in the gap can't see stale course refs without the
+  // course record existing — the inlining logic on the read path tolerates
+  // a missing course (returns course: null) but it still helps to keep the
+  // happy path tight.
+  const items = await db.getAllSyncData('_system');
+  const affectedKeys = items
+    .filter(i => i.dataKey.startsWith('lesson:') && i.data?.course === courseId)
+    .map(i => i.dataKey);
+
+  await db.deleteSyncData('_system', `course:${courseId}`);
+
+  // Cascade with per-lesson re-read so a concurrent admin edit on one of
+  // these lessons doesn't trigger a ConditionalCheckFailedException — we
+  // pick up the latest version and any new field values, then override
+  // just `course`. Skip the PUT if the lesson no longer references this
+  // course (another admin already moved it), so we don't clobber an
+  // intentional re-assignment.
+  for (const dataKey of affectedKeys) {
+    const fresh = await db.getSyncData('_system', dataKey);
+    if (!fresh) continue;
+    if (fresh.data?.course !== courseId) continue;
+    await db.putSyncData('_system', dataKey, { ...fresh.data, course: null }, fresh.version || 0);
+  }
+
   return c.json({ ok: true });
 });
 
@@ -645,16 +908,40 @@ admin.put('/v1/admin/plugins/:id/settings', async (c) => {
   }
 });
 
-// GET /v1/admin/stats/lessons — lesson pacing KPIs
-// MAX_EXCHANGES is a design target, never a cutoff. Lessons always run until
-// the coach awards progress 10 — the system does not force-complete anyone.
-// `extendedThreshold` (2x target) is informational only: a lesson that runs
-// that long usually means the lesson design mismatched the learner, not that
-// the coach should close harder.
-admin.get('/v1/admin/stats/lessons', async (c) => {
-  // MAX_EXCHANGES imported at top from lesson-limits.js
+// GET /v1/admin/stats/lessons — lesson pacing + learner engagement KPIs
+//
+// Powers the admin dashboard at `/plato`. Two families of metrics:
+//   - Pacing: how on-target completed lessons are (on-target rate, over-target
+//     count, extended-lesson count). MAX_EXCHANGES is a design target, never a
+//     cutoff. `extendedThreshold` (2x target) is informational only — a lesson
+//     that runs that long signals a lesson-design mismatch, not a coach
+//     failure.
+//   - Engagement: `pctStarted` (target >90%) and `pctCompletedHalf` (target
+//     >50%). Denominator is non-admin users; "started" = ≥1 lessonKB:* of any
+//     status; "completed half" = lessonsCompleted / lessonsAvailable > 0.5
+//     (strict — exactly 50% does not count).
+//
+// Response shape: a flat object with all metric fields plus a `computedAt`
+// ISO timestamp (server-generated). The dashboard renders this directly.
+//
+// Caching: stale-while-revalidate (see server/src/lib/lesson-stats-cache.js).
+// Fresh window 10 min; stale window 10 min – 24 h serves cached + fires an
+// async Lambda self-invoke for refresh; older than 24 h or missing recomputes
+// synchronously. The fan-in (every user × every sync-data item) means the
+// recompute should never be on the hot path.
+//
+// `?refresh=1` bypasses the cache and recomputes synchronously — the dashboard's
+// Refresh button uses it. Admin-gated like everything under /v1/admin.
+
+// Pure aggregation — no Hono, no cache, no auth. Exported so the async-refresh
+// path (server/src/index.js handler dispatching a self-invoke) can call it
+// directly without going through the HTTP layer.
+export async function computeLessonStats() {
   const extendedThreshold = MAX_EXCHANGES * 2;
   const users = await db.listAllUsers();
+  const systemItems = await db.getAllSyncData('_system');
+
+  // Pacing aggregates
   let withinTarget = 0;
   let overTarget = 0;
   let extendedLessons = 0; // completed lessons that ran past 2× target
@@ -663,13 +950,24 @@ admin.get('/v1/admin/stats/lessons', async (c) => {
   let activeLessons = 0;
   const durations = []; // in minutes
 
+  // Engagement aggregates (#TARGET_STARTED_PCT / #TARGET_COMPLETED_HALF_PCT)
+  let activeLearners = 0;       // non-admin users
+  let learnersStarted = 0;      // ≥1 lessonKB:* record of any status
+  let learnersCompletedHalf = 0; // completed > 50% of lessons available to them
+
   for (const user of users) {
+    const isLearner = user.role !== 'admin';
     const syncItems = await db.getAllSyncData(user.userId);
+    let userHasStarted = false;
+    let userCompleted = 0;
+
     for (const item of syncItems) {
       if (!item.dataKey?.startsWith('lessonKB:')) continue;
       const kb = item.data;
       if (!kb) continue;
+      userHasStarted = true;
       if (kb.status === 'completed') {
+        userCompleted++;
         const exchanges = kb.activitiesCompleted || 0;
         if (exchanges <= MAX_EXCHANGES) {
           withinTarget++;
@@ -679,11 +977,9 @@ admin.get('/v1/admin/stats/lessons', async (c) => {
           totalExchangesOver += exchanges;
           if (exchanges >= extendedThreshold) extendedLessons++;
         }
-        // Compute duration if timestamps are available
         if (kb.startedAt && kb.completedAt) {
           durations.push((kb.completedAt - kb.startedAt) / 60000);
         } else {
-          // Fallback: try to get duration from message timestamps
           const lessonId = item.dataKey.replace('lessonKB:', '');
           const msgItem = syncItems.find(s => s.dataKey === `messages:${lessonId}`);
           const msgs = msgItem?.data;
@@ -697,13 +993,21 @@ admin.get('/v1/admin/stats/lessons', async (c) => {
         activeLessons++;
       }
     }
+
+    if (isLearner) {
+      activeLearners++;
+      if (userHasStarted) learnersStarted++;
+      const available = countLessonsAvailableTo(user.userId, systemItems);
+      if (available > 0 && userCompleted / available > 0.5) learnersCompletedHalf++;
+    }
   }
 
   const totalCompletions = withinTarget + overTarget;
   const avgDurationMinutes = durations.length
     ? +(durations.reduce((a, b) => a + b, 0) / durations.length).toFixed(1)
     : null;
-  return c.json({
+
+  return {
     totalCompletions,
     withinTarget,
     overTarget,
@@ -715,6 +1019,119 @@ admin.get('/v1/admin/stats/lessons', async (c) => {
     avgExchangesOverTarget: overTarget ? +(totalExchangesOver / overTarget).toFixed(1) : null,
     avgDurationMinutes,
     activeLessons,
+    // Engagement KPIs
+    activeLearners,
+    learnersStarted,
+    learnersCompletedHalf,
+    pctStarted: activeLearners > 0 ? +((learnersStarted / activeLearners) * 100).toFixed(1) : null,
+    pctCompletedHalf: activeLearners > 0 ? +((learnersCompletedHalf / activeLearners) * 100).toFixed(1) : null,
+    targetStartedPct: 90,
+    targetCompletedHalfPct: 50,
+  };
+}
+
+export async function recomputeAndCacheLessonStats() {
+  const stats = await computeLessonStats();
+  const computedAt = new Date().toISOString();
+  await db.putSyncData('_system', 'stats:lessons', { computedAt, stats });
+  return { computedAt, stats };
+}
+
+admin.get('/v1/admin/stats/lessons', async (c) => {
+  const force = new URL(c.req.url).searchParams.get('refresh') === '1';
+  if (!force) {
+    const cached = await db.getSyncData('_system', 'stats:lessons');
+    const status = classifyCache(cached);
+    if (status === 'fresh') {
+      return c.json({ ...cached.data.stats, computedAt: cached.data.computedAt });
+    }
+    if (status === 'stale') {
+      kickoffAsyncRefresh(); // fire and forget
+      return c.json({ ...cached.data.stats, computedAt: cached.data.computedAt });
+    }
+  }
+  const { computedAt, stats } = await recomputeAndCacheLessonStats();
+  return c.json({ ...stats, computedAt });
+});
+
+// GET /v1/admin/users/:userId/stats — per-user activity metrics for the
+// admin user-detail panel (issue #136). Computed on demand from sync-data +
+// audit-log; no precomputation. Window is the last `days` calendar days
+// (default 30) in UTC.
+//
+// Duration is exchange-based (activitiesCompleted × MINS_PER_EXCHANGE) to
+// match `/v1/admin/stats/lessons` and AdminHome — wall-clock minutes inflate
+// from multi-session lessons. Logins are read from the audit-log
+// (`user_login` events, scan-with-filter — fine at current scale).
+admin.get('/v1/admin/users/:userId/stats', async (c) => {
+  const userId = c.req.param('userId');
+  const user = await db.getUserById(userId);
+  if (!user) return c.json({ error: 'User not found' }, 404);
+
+  const url = new URL(c.req.url);
+  const daysParam = parseInt(url.searchParams.get('days') || '30', 10);
+  const days = Number.isFinite(daysParam) && daysParam > 0 && daysParam <= 365 ? daysParam : 30;
+  const sinceIso = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+
+  // Lesson name lookup
+  const systemItems = await db.getAllSyncData('_system');
+  const lessonNames = new Map();
+  for (const item of systemItems) {
+    if (item.dataKey?.startsWith('lesson:')) {
+      const id = item.dataKey.slice('lesson:'.length);
+      lessonNames.set(id, item.data?.name || id);
+    }
+  }
+
+  const syncItems = await db.getAllSyncData(userId);
+  let lessonsCompleted = 0;
+  const lessonDurations = []; // { lessonId, lessonName, exchanges, minutes, completedAt }
+
+  for (const item of syncItems) {
+    if (!item.dataKey?.startsWith('lessonKB:')) continue;
+    const kb = item.data;
+    if (!kb || kb.status !== 'completed') continue;
+    lessonsCompleted++;
+    const lessonId = item.dataKey.slice('lessonKB:'.length);
+    const exchanges = kb.activitiesCompleted || 0;
+    const minutes = +(exchanges * MINS_PER_EXCHANGE).toFixed(1);
+    const completedAtMs = typeof kb.completedAt === 'number' ? kb.completedAt
+      : typeof kb.completedAt === 'string' ? Date.parse(kb.completedAt)
+      : null;
+    lessonDurations.push({
+      lessonId,
+      lessonName: lessonNames.get(lessonId) || lessonId,
+      exchanges, minutes,
+      completedAt: completedAtMs ? new Date(completedAtMs).toISOString() : null,
+    });
+  }
+
+  // Logins from audit-log
+  const auditEntries = await db.listAuditLogsForUser(userId, sinceIso);
+  let loginsInWindow = 0;
+  for (const entry of auditEntries) {
+    if (entry.action === 'user_login') loginsInWindow++;
+  }
+
+  // Percentiles over all completed lessons (career stats, not window-scoped)
+  const sorted = lessonDurations.map((l) => l.minutes).sort((a, b) => a - b);
+  const pct = (p) => {
+    if (sorted.length === 0) return null;
+    const idx = Math.min(sorted.length - 1, Math.floor((p / 100) * sorted.length));
+    return sorted[idx];
+  };
+
+  lessonDurations.sort((a, b) => (b.completedAt || '').localeCompare(a.completedAt || ''));
+
+  return c.json({
+    userId,
+    windowDays: days,
+    lessonsCompleted,
+    lessonsAvailable: countLessonsAvailableTo(userId, systemItems),
+    loginsInWindow,
+    completionMinutesP50: pct(50),
+    completionMinutesP90: pct(90),
+    lessonDurations,
   });
 });
 

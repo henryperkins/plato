@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useApp } from '../contexts/AppContext.jsx';
+import { useAuth } from '../contexts/AuthContext.jsx';
 import { useStreamedText } from '../hooks/useStreamedText.js';
 import { useTitleNotification } from '../hooks/useTitleNotification.js';
 import { LESSON_PHASES, MSG_TYPES } from '../lib/constants.js';
@@ -31,6 +32,20 @@ export default function LessonChat() {
   const { state, dispatch } = useApp();
   const { lessons } = state;
   const lesson = lessons.find(c => c.lessonId === lessonGroupId);
+  const { impersonatedUser } = useAuth();
+  const impersonating = !!impersonatedUser;
+
+  // The resume/start effect below must run once per lesson — NOT every time
+  // the lessons array is rebuilt. Returning to the browser tab re-runs
+  // `loadAll()` + `loadLessons()`, which produces a fresh `lesson` object
+  // with the same contents but a new identity. Keying the effect on that
+  // identity made it re-run on every tab refocus, re-fetching messages from
+  // the (just-cleared) cache and resetting the conversation to its last
+  // persisted state mid-lesson (issue #191). The effect reads `lesson` via
+  // this ref and keys only on stable values (id + presence).
+  const lessonRef = useRef(lesson);
+  useEffect(() => { lessonRef.current = lesson; }, [lesson]);
+  const lessonLoaded = !!lesson;
 
   const [phase, setPhase] = useState(null);
   const [messages, setMessages] = useState([]);
@@ -58,7 +73,7 @@ export default function LessonChat() {
   const [composePinned, setComposePinned] = useState(true);
   const composeAnchorRef = useRef(null);
   const [composeText, setComposeText] = useState('');
-  const [composeImage, setComposeImage] = useState(null);
+  const [composeImages, setComposeImages] = useState([]);
 
   // Pin header when its top edge reaches the viewport top
   useEffect(() => {
@@ -143,16 +158,24 @@ export default function LessonChat() {
   }, [showObjectives]);
 
   useEffect(() => {
+    const lesson = lessonRef.current;
     if (!lesson) return;
     let cancelled = false;
 
     (async () => {
       const existing = await engine.resumeLesson(lessonGroupId);
+      if (cancelled) return;
 
       if (existing.messages.length > 0) {
         setMessages(existing.messages);
         setLessonKB(existing.lessonKB);
         setPhase(existing.phase);
+      } else if (impersonating) {
+        // Admin "View as User": the target hasn't started this lesson yet.
+        // Don't auto-start (engine guard would throw, and we'd be writing
+        // with the admin's JWT anyway). Show an informational state instead.
+        setError('This learner has not started this lesson yet — there is nothing to view.');
+        setPhase(LESSON_PHASES.LEARNING);
       } else {
         setLoading('starting');
         setStreamingText('');
@@ -172,10 +195,11 @@ export default function LessonChat() {
     })();
 
     return () => { cancelled = true; };
-  }, [lessonGroupId, lesson]);
+  }, [lessonGroupId, lessonLoaded, impersonating]);
 
-  const handleSend = useCallback(async ({ text, imageDataUrl }) => {
-    if (!text && !imageDataUrl) return;
+  const handleSend = useCallback(async ({ text, imageDataUrls }) => {
+    const hasImages = Array.isArray(imageDataUrls) && imageDataUrls.length > 0;
+    if (!text && !hasImages) return;
     setError('');
     setLoading('qa');
     setStreamingText('');
@@ -183,13 +207,13 @@ export default function LessonChat() {
     setMessages(prev => [...prev, {
       role: 'user', content: text || '', msgType: MSG_TYPES.USER,
       phase: LESSON_PHASES.LEARNING,
-      metadata: imageDataUrl ? { imageDataUrl } : null,
+      metadata: hasImages ? { imageDataUrls } : null,
       timestamp: Date.now(),
     }]);
 
     try {
       const result = await engine.sendMessage(
-        lessonGroupId, lesson, text, imageDataUrl,
+        lessonGroupId, lesson, text, imageDataUrls,
         (partial) => setStreamingText(partial)
       );
       const assistantMsg = result.messages.find(m => m.role === 'assistant');
@@ -258,13 +282,21 @@ export default function LessonChat() {
         return (
           <div key={idx}>
             {msg.content && <UserMessage content={msg.content} />}
-            {msg.metadata?.imageDataUrl && (
-              <div className="flex justify-end mt-1">
-                <div className="max-w-[85%] rounded-2xl rounded-br-sm bg-primary p-1.5">
-                  <img src={msg.metadata.imageDataUrl} alt="Your uploaded work" className="max-w-full rounded-lg" />
+            {(() => {
+              const urls = Array.isArray(msg.metadata?.imageDataUrls)
+                ? msg.metadata.imageDataUrls
+                : msg.metadata?.imageDataUrl ? [msg.metadata.imageDataUrl] : [];
+              if (urls.length === 0) return null;
+              return (
+                <div className="flex justify-end mt-1">
+                  <div className="max-w-[85%] rounded-2xl rounded-br-sm bg-primary p-1.5 flex flex-wrap gap-1">
+                    {urls.map((url, i) => (
+                      <img key={i} src={url} alt={`Your uploaded work ${i + 1}`} className="max-w-full rounded-lg" />
+                    ))}
+                  </div>
                 </div>
-              </div>
-            )}
+              );
+            })()}
           </div>
         );
       default:
@@ -365,14 +397,14 @@ export default function LessonChat() {
       {phase && (
         <div ref={composeAnchorRef} aria-hidden={composePinned || undefined} className={composePinned ? 'invisible' : ''}>
           <ComposeBar
-            placeholder={composePlaceholder}
+            placeholder={impersonating ? 'Read-only — viewing as another user' : composePlaceholder}
             onSend={handleSend}
-            disabled={busy}
+            disabled={busy || impersonating}
             allowImages
             text={composeText}
             onTextChange={setComposeText}
-            image={composeImage}
-            onImageChange={setComposeImage}
+            images={composeImages}
+            onImagesChange={setComposeImages}
           />
         </div>
       )}
@@ -381,15 +413,15 @@ export default function LessonChat() {
       {phase && composePinned && (
         <div className="fixed bottom-9 left-0 right-0 z-50">
           <ComposeBar
-            placeholder={composePlaceholder}
+            placeholder={impersonating ? 'Read-only — viewing as another user' : composePlaceholder}
             onSend={handleSend}
-            disabled={busy}
+            disabled={busy || impersonating}
             allowImages
             elevated
             text={composeText}
             onTextChange={setComposeText}
-            image={composeImage}
-            onImageChange={setComposeImage}
+            images={composeImages}
+            onImagesChange={setComposeImages}
           />
         </div>
       )}

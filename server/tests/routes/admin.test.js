@@ -54,6 +54,77 @@ describe('GET /v1/admin/users', () => {
   });
 });
 
+describe('POST /v1/admin/impersonation/start + end', () => {
+  beforeEach(() => {
+    db.getUserById = async (id) => {
+      if (id === 'usr_admin') return { userId: 'usr_admin', email: 'admin@x.com', role: 'admin', name: 'Admin' };
+      if (id === 'usr_user') return { userId: 'usr_user', role: 'user' };
+      if (id === 'usr_target') return { userId: 'usr_target', email: 't@x.com', username: 'target', name: 'Target', role: 'user' };
+      return null;
+    };
+  });
+
+  it('start writes audit_log entry with action=admin_view_as_user_started', async () => {
+    let logged = null;
+    db.createAuditLog = async (entry) => { logged = entry; };
+    const app = new Hono();
+    app.route('/', admin);
+    const res = await adminReq(app, 'POST', '/v1/admin/impersonation/start', { targetUserId: 'usr_target' });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.userId, 'usr_target');
+    assert.equal(body.username, 'target');
+    assert.equal(logged?.action, 'admin_view_as_user_started');
+    assert.equal(logged?.userId, 'usr_target');
+    assert.equal(logged?.performedBy, 'usr_admin');
+  });
+
+  it('start returns 404 when target does not exist', async () => {
+    db.createAuditLog = async () => {};
+    const app = new Hono();
+    app.route('/', admin);
+    const res = await adminReq(app, 'POST', '/v1/admin/impersonation/start', { targetUserId: 'usr_nope' });
+    assert.equal(res.status, 404);
+  });
+
+  it('start returns 400 when targetUserId missing', async () => {
+    db.createAuditLog = async () => {};
+    const app = new Hono();
+    app.route('/', admin);
+    const res = await adminReq(app, 'POST', '/v1/admin/impersonation/start', {});
+    assert.equal(res.status, 400);
+  });
+
+  it('start rejects non-admins', async () => {
+    db.createAuditLog = async () => {};
+    const app = new Hono();
+    app.route('/', admin);
+    const res = await userReq(app, 'POST', '/v1/admin/impersonation/start', { targetUserId: 'usr_target' });
+    assert.equal(res.status, 403);
+  });
+
+  it('end writes audit_log entry with action=admin_view_as_user_ended', async () => {
+    let logged = null;
+    db.createAuditLog = async (entry) => { logged = entry; };
+    const app = new Hono();
+    app.route('/', admin);
+    const res = await adminReq(app, 'POST', '/v1/admin/impersonation/end', { targetUserId: 'usr_target' });
+    assert.equal(res.status, 200);
+    assert.equal(logged?.action, 'admin_view_as_user_ended');
+    assert.equal(logged?.performedBy, 'usr_admin');
+  });
+
+  it('end is best-effort when targetUserId is missing', async () => {
+    let logged = null;
+    db.createAuditLog = async (entry) => { logged = entry; };
+    const app = new Hono();
+    app.route('/', admin);
+    const res = await adminReq(app, 'POST', '/v1/admin/impersonation/end', {});
+    assert.equal(res.status, 200);
+    assert.equal(logged?.action, 'admin_view_as_user_ended');
+  });
+});
+
 describe('POST /v1/admin/invites', () => {
   beforeEach(() => {
     db.getUserById = async () => ({ userId: 'usr_admin', role: 'admin', name: 'Admin' });
@@ -317,15 +388,23 @@ describe('draft lesson records', () => {
 });
 
 describe('GET /v1/admin/stats/lessons', () => {
+  // Stats endpoint is wrapped in a stale-while-revalidate cache stored in
+  // `_system:stats:lessons`. By default each test mocks an empty cache so the
+  // compute path runs synchronously; the cache-behavior tests override.
+  let putCalls;
   beforeEach(() => {
+    putCalls = [];
     db.getUserById = async () => ({ userId: 'usr_admin', role: 'admin', name: 'Admin' });
+    db.getSyncData = async () => null;
+    db.putSyncData = async (userId, dataKey, data) => { putCalls.push({ userId, dataKey, data }); };
   });
 
   it('returns aggregated lesson stats', async () => {
     db.listAllUsers = async () => [
-      { userId: 'u1' }, { userId: 'u2' }, { userId: 'u3' },
+      { userId: 'u1', role: 'user' }, { userId: 'u2', role: 'user' }, { userId: 'u3', role: 'user' },
     ];
     db.getAllSyncData = async (userId) => {
+      if (userId === '_system') return [];
       if (userId === 'u1') return [
         { dataKey: 'lessonKB:c1', data: { status: 'completed', progress: 10, activitiesCompleted: 6, startedAt: 1000000, completedAt: 1600000 } },
         { dataKey: 'lessonKB:c2', data: { status: 'active', progress: 4, activitiesCompleted: 3 } },
@@ -353,10 +432,15 @@ describe('GET /v1/admin/stats/lessons', () => {
     assert.equal(data.exchangeTarget, 11);
     assert.equal(data.extendedThreshold, 22);
     assert.equal(data.avgDurationMinutes, 20);
+    // Cache write happened
+    assert.equal(putCalls.length, 1);
+    assert.equal(putCalls[0].userId, '_system');
+    assert.equal(putCalls[0].dataKey, 'stats:lessons');
   });
 
   it('returns nulls when no completions', async () => {
     db.listAllUsers = async () => [];
+    db.getAllSyncData = async () => [];
     const app = new Hono();
     app.route('/', admin);
     const res = await adminReq(app, 'GET', '/v1/admin/stats/lessons');
@@ -364,6 +448,157 @@ describe('GET /v1/admin/stats/lessons', () => {
     const data = await res.json();
     assert.equal(data.totalCompletions, 0);
     assert.equal(data.avgExchangesPerCompletion, null);
+  });
+
+  it('computes engagement KPIs (started + completed-half), excluding admins from the denominator', async () => {
+    db.listAllUsers = async () => [
+      { userId: 'u1', role: 'user' },      // started + completed 2/2 -> counts as "completed half+"
+      { userId: 'u2', role: 'user' },      // started, completed 0/2 -> started only
+      { userId: 'u3', role: 'user' },      // not started
+      { userId: 'a1', role: 'admin' },     // admin: excluded from denominator
+    ];
+    db.getAllSyncData = async (userId) => {
+      if (userId === '_system') return [
+        { dataKey: 'lesson:L1', data: { status: 'public', markdown: '...' } },
+        { dataKey: 'lesson:L2', data: { status: 'public', markdown: '...' } },
+      ];
+      if (userId === 'u1') return [
+        { dataKey: 'lessonKB:L1', data: { status: 'completed', activitiesCompleted: 5 } },
+        { dataKey: 'lessonKB:L2', data: { status: 'completed', activitiesCompleted: 5 } },
+      ];
+      if (userId === 'u2') return [
+        { dataKey: 'lessonKB:L1', data: { status: 'active', activitiesCompleted: 1 } },
+      ];
+      return []; // u3, a1
+    };
+    const app = new Hono();
+    app.route('/', admin);
+    const res = await adminReq(app, 'GET', '/v1/admin/stats/lessons');
+    assert.equal(res.status, 200);
+    const data = await res.json();
+    assert.equal(data.activeLearners, 3); // admins excluded
+    assert.equal(data.learnersStarted, 2); // u1, u2
+    assert.equal(data.learnersCompletedHalf, 1); // u1 (2/2 > 50%)
+    assert.equal(data.pctStarted, 66.7);
+    assert.equal(data.pctCompletedHalf, 33.3);
+    assert.equal(data.targetStartedPct, 90);
+    assert.equal(data.targetCompletedHalfPct, 50);
+  });
+
+  it('exactly-50% does NOT count as completed-half (rule is > 50%)', async () => {
+    db.listAllUsers = async () => [
+      { userId: 'u1', role: 'user' }, // 1/2 completed = 50% — NOT > 50%
+      { userId: 'u2', role: 'user' }, // 2/3 completed = 66.7% — counts
+    ];
+    db.getAllSyncData = async (userId) => {
+      if (userId === '_system') return [
+        { dataKey: 'lesson:L1', data: { status: 'public', markdown: '...' } },
+        { dataKey: 'lesson:L2', data: { status: 'public', markdown: '...' } },
+        { dataKey: 'lesson:L3', data: { status: 'public', markdown: '...' } },
+      ];
+      if (userId === 'u1') return [
+        { dataKey: 'lessonKB:L1', data: { status: 'completed', activitiesCompleted: 5 } },
+      ];
+      if (userId === 'u2') return [
+        { dataKey: 'lessonKB:L1', data: { status: 'completed', activitiesCompleted: 5 } },
+        { dataKey: 'lessonKB:L2', data: { status: 'completed', activitiesCompleted: 5 } },
+      ];
+      return [];
+    };
+    const app = new Hono();
+    app.route('/', admin);
+    const res = await adminReq(app, 'GET', '/v1/admin/stats/lessons');
+    const data = await res.json();
+    assert.equal(data.learnersCompletedHalf, 1); // u2 only
+  });
+
+  it('serves cached value without recomputing when cache is fresh', async () => {
+    const cachedStats = { totalCompletions: 999, fromCache: true };
+    db.getSyncData = async (userId, dataKey) => {
+      if (userId === '_system' && dataKey === 'stats:lessons') {
+        return { data: { computedAt: new Date().toISOString(), stats: cachedStats } };
+      }
+      return null;
+    };
+    let computeRan = false;
+    db.listAllUsers = async () => { computeRan = true; return []; };
+    const app = new Hono();
+    app.route('/', admin);
+    const res = await adminReq(app, 'GET', '/v1/admin/stats/lessons');
+    assert.equal(res.status, 200);
+    const data = await res.json();
+    assert.equal(data.totalCompletions, 999);
+    assert.equal(data.fromCache, true);
+    assert.equal(computeRan, false, 'should not have recomputed');
+    assert.equal(putCalls.length, 0, 'should not have written cache');
+  });
+
+  it('serves cached value and skips synchronous recompute when cache is stale (10min < age < 24h)', async () => {
+    const cachedStats = { totalCompletions: 42, fromCache: true };
+    const staleAgeMs = 30 * 60 * 1000; // 30 minutes
+    db.getSyncData = async () => ({
+      data: { computedAt: new Date(Date.now() - staleAgeMs).toISOString(), stats: cachedStats },
+    });
+    let computeRan = false;
+    db.listAllUsers = async () => { computeRan = true; return []; };
+    const app = new Hono();
+    app.route('/', admin);
+    const res = await adminReq(app, 'GET', '/v1/admin/stats/lessons');
+    assert.equal(res.status, 200);
+    const data = await res.json();
+    assert.equal(data.fromCache, true);
+    assert.equal(computeRan, false, 'stale path should NOT recompute synchronously');
+  });
+
+  it('?refresh=1 bypasses a fresh cache and recomputes', async () => {
+    const cachedStats = { totalCompletions: 999, fromCache: true };
+    db.getSyncData = async () => ({
+      data: { computedAt: new Date().toISOString(), stats: cachedStats },
+    });
+    let computeRan = false;
+    db.listAllUsers = async () => { computeRan = true; return []; };
+    db.getAllSyncData = async () => [];
+    const app = new Hono();
+    app.route('/', admin);
+    const res = await adminReq(app, 'GET', '/v1/admin/stats/lessons?refresh=1');
+    assert.equal(res.status, 200);
+    const data = await res.json();
+    assert.equal(data.fromCache, undefined, 'should not return cached payload');
+    assert.equal(data.totalCompletions, 0);
+    assert.equal(typeof data.computedAt, 'string');
+    assert.equal(computeRan, true);
+    assert.equal(putCalls.length, 1, 'should have written fresh cache');
+  });
+
+  it('returns computedAt inlined in the stats payload', async () => {
+    const computedAt = new Date().toISOString();
+    db.getSyncData = async () => ({
+      data: { computedAt, stats: { totalCompletions: 7 } },
+    });
+    db.listAllUsers = async () => [];
+    const app = new Hono();
+    app.route('/', admin);
+    const res = await adminReq(app, 'GET', '/v1/admin/stats/lessons');
+    const data = await res.json();
+    assert.equal(data.computedAt, computedAt);
+    assert.equal(data.totalCompletions, 7);
+  });
+
+  it('recomputes synchronously when cache is older than MAX_AGE (>24h)', async () => {
+    const expiredAgeMs = 25 * 60 * 60 * 1000; // 25 hours
+    db.getSyncData = async () => ({
+      data: { computedAt: new Date(Date.now() - expiredAgeMs).toISOString(), stats: { stale: true } },
+    });
+    db.listAllUsers = async () => [];
+    db.getAllSyncData = async () => [];
+    const app = new Hono();
+    app.route('/', admin);
+    const res = await adminReq(app, 'GET', '/v1/admin/stats/lessons');
+    assert.equal(res.status, 200);
+    const data = await res.json();
+    assert.equal(data.stale, undefined, 'should not return stale cache');
+    assert.equal(data.totalCompletions, 0);
+    assert.equal(putCalls.length, 1, 'should have written fresh cache');
   });
 });
 
@@ -635,4 +870,376 @@ describe('GET /v1/admin/logs', () => {
     assert.deepEqual(data.cloudwatch.logGroups, []);
   });
 
+});
+
+describe('Courses CRUD', () => {
+  beforeEach(() => {
+    db.getUserById = async (id) => {
+      if (id === 'usr_admin') return { userId: 'usr_admin', role: 'admin', name: 'Admin', username: 'admin' };
+      return { userId: id, role: 'user', name: 'User' };
+    };
+  });
+
+  it('GET /v1/admin/courses returns sorted list with lessonCount', async () => {
+    db.getAllSyncData = async () => [
+      { dataKey: 'course:c-1', data: { name: 'Beta Course' }, updatedAt: '2026-01-02', version: 1 },
+      { dataKey: 'course:c-2', data: { name: 'Alpha Course' }, updatedAt: '2026-01-01', version: 1 },
+      { dataKey: 'lesson:l-1', data: { name: 'Lesson 1', markdown: '# x', status: 'public', course: 'c-1' } },
+      { dataKey: 'lesson:l-2', data: { name: 'Lesson 2', markdown: '# y', status: 'public', course: 'c-1' } },
+      { dataKey: 'lesson:l-3', data: { name: 'Lesson 3', markdown: '# z', status: 'public', course: 'c-2' } },
+      { dataKey: 'lesson:l-4', data: { name: 'Lesson 4', markdown: '# w', status: 'public' } }, // no course
+    ];
+    const app = new Hono(); app.route('/', admin);
+    const res = await adminReq(app, 'GET', '/v1/admin/courses');
+    assert.equal(res.status, 200);
+    const data = await res.json();
+    assert.equal(data.length, 2);
+    assert.equal(data[0].name, 'Alpha Course');
+    assert.equal(data[0].lessonCount, 1);
+    assert.equal(data[1].name, 'Beta Course');
+    assert.equal(data[1].lessonCount, 2);
+  });
+
+  it('GET /v1/admin/courses/:id returns the course', async () => {
+    db.getSyncData = async () => ({ data: { name: 'AI Foundations' }, updatedAt: '2026-01-01', version: 1 });
+    const app = new Hono(); app.route('/', admin);
+    const res = await adminReq(app, 'GET', '/v1/admin/courses/c-1');
+    assert.equal(res.status, 200);
+    const data = await res.json();
+    assert.equal(data.courseId, 'c-1');
+    assert.equal(data.name, 'AI Foundations');
+  });
+
+  it('GET /v1/admin/courses/:id returns 404 for missing course', async () => {
+    db.getSyncData = async () => null;
+    const app = new Hono(); app.route('/', admin);
+    const res = await adminReq(app, 'GET', '/v1/admin/courses/missing');
+    assert.equal(res.status, 404);
+  });
+
+  it('PUT /v1/admin/courses/:id creates a new course', async () => {
+    db.getAllSyncData = async () => [];
+    db.getSyncData = async () => null;
+    let saved = null;
+    db.putSyncData = async (userId, dataKey, data) => { saved = { userId, dataKey, data }; };
+    const app = new Hono(); app.route('/', admin);
+    const res = await adminReq(app, 'PUT', '/v1/admin/courses/c-new', { name: '  New Course  ' });
+    assert.equal(res.status, 200);
+    assert.equal(saved.userId, '_system');
+    assert.equal(saved.dataKey, 'course:c-new');
+    assert.equal(saved.data.name, 'New Course');
+    assert.equal(saved.data.description, undefined);
+    assert.equal(saved.data.createdBy, 'usr_admin');
+    assert.equal(saved.data.updatedBy, 'usr_admin');
+  });
+
+  it('PUT /v1/admin/courses/:id rejects empty name', async () => {
+    const app = new Hono(); app.route('/', admin);
+    const res = await adminReq(app, 'PUT', '/v1/admin/courses/c-bad', { name: '   ' });
+    assert.equal(res.status, 400);
+    const data = await res.json();
+    assert.match(data.error, /name is required/i);
+  });
+
+  it('PUT /v1/admin/courses/:id rejects oversize name', async () => {
+    const app = new Hono(); app.route('/', admin);
+    const res = await adminReq(app, 'PUT', '/v1/admin/courses/c-bad', { name: 'x'.repeat(81) });
+    assert.equal(res.status, 400);
+  });
+
+  it('PUT /v1/admin/courses/:id rejects duplicate name (case-insensitive)', async () => {
+    db.getAllSyncData = async () => [
+      { dataKey: 'course:c-1', data: { name: 'AI Foundations' }, version: 1 },
+    ];
+    db.getSyncData = async () => null;
+    db.putSyncData = async () => {};
+    const app = new Hono(); app.route('/', admin);
+    const res = await adminReq(app, 'PUT', '/v1/admin/courses/c-2', { name: 'ai foundations' });
+    assert.equal(res.status, 409);
+  });
+
+  it('PUT /v1/admin/courses/:id allows renaming an existing course (same id)', async () => {
+    db.getAllSyncData = async () => [
+      { dataKey: 'course:c-1', data: { name: 'AI Foundations' }, version: 2 },
+    ];
+    db.getSyncData = async () => ({ data: { name: 'AI Foundations', createdBy: 'usr_admin', createdAt: '2026-01-01' }, version: 2 });
+    let saved = null;
+    db.putSyncData = async (userId, dataKey, data, version) => { saved = { userId, dataKey, data, version }; };
+    const app = new Hono(); app.route('/', admin);
+    const res = await adminReq(app, 'PUT', '/v1/admin/courses/c-1', { name: 'AI Foundations Updated' });
+    assert.equal(res.status, 200);
+    assert.equal(saved.data.name, 'AI Foundations Updated');
+    assert.equal(saved.data.createdAt, '2026-01-01'); // preserved
+  });
+
+  it('DELETE /v1/admin/courses/:id removes the course and clears it from lessons', async () => {
+    const initialItems = [
+      { dataKey: 'lesson:l-1', data: { name: 'L1', markdown: '#', status: 'public', course: 'c-doom' }, version: 1 },
+      { dataKey: 'lesson:l-2', data: { name: 'L2', markdown: '#', status: 'public', course: 'c-other' }, version: 1 },
+      { dataKey: 'lesson:l-3', data: { name: 'L3', markdown: '#', status: 'public', course: 'c-doom' }, version: 1 },
+    ];
+    // The cascade re-reads each affected lesson before clearing its course,
+    // so the per-lesson getSyncData has to return them freshly. The course
+    // record itself is also looked up first to confirm it exists.
+    db.getSyncData = async (uid, key) => {
+      if (key === 'course:c-doom') return { data: { name: 'Doomed' }, version: 1 };
+      const found = initialItems.find(i => i.dataKey === key);
+      return found ? { data: found.data, version: found.version } : null;
+    };
+    db.getAllSyncData = async () => initialItems;
+    let deleted = null;
+    db.deleteSyncData = async (uid, key) => { deleted = key; };
+    const cleared = [];
+    db.putSyncData = async (uid, key, data) => { cleared.push({ key, course: data.course }); };
+    const app = new Hono(); app.route('/', admin);
+    const res = await adminReq(app, 'DELETE', '/v1/admin/courses/c-doom');
+    assert.equal(res.status, 200);
+    assert.equal(deleted, 'course:c-doom');
+    assert.equal(cleared.length, 2);
+    assert.ok(cleared.every(c => c.course === null));
+    assert.deepEqual(cleared.map(c => c.key).sort(), ['lesson:l-1', 'lesson:l-3']);
+  });
+
+  it('DELETE /v1/admin/courses/:id skips lessons whose course was reassigned mid-cascade', async () => {
+    // Initial scan: l-1 references the doomed course. Then by the time the
+    // per-lesson re-read happens, another admin has reassigned l-1 to a
+    // different course. Our cascade should leave that reassignment alone.
+    const initialItems = [
+      { dataKey: 'lesson:l-1', data: { name: 'L1', markdown: '#', status: 'public', course: 'c-doom' }, version: 1 },
+    ];
+    let lessonRereadCount = 0;
+    db.getSyncData = async (uid, key) => {
+      if (key === 'course:c-doom') return { data: { name: 'Doomed' }, version: 1 };
+      if (key === 'lesson:l-1') {
+        lessonRereadCount++;
+        // Simulated concurrent reassignment: by the time the cascade re-reads,
+        // l-1 has been moved to a different course.
+        return { data: { name: 'L1', markdown: '#', status: 'public', course: 'c-new' }, version: 2 };
+      }
+      return null;
+    };
+    db.getAllSyncData = async () => initialItems;
+    db.deleteSyncData = async () => {};
+    const cleared = [];
+    db.putSyncData = async (uid, key, data) => { cleared.push({ key, course: data.course }); };
+    const app = new Hono(); app.route('/', admin);
+    const res = await adminReq(app, 'DELETE', '/v1/admin/courses/c-doom');
+    assert.equal(res.status, 200);
+    assert.equal(lessonRereadCount, 1, 'cascade should re-read the lesson before deciding to write');
+    assert.equal(cleared.length, 0, 'cascade should not touch a lesson whose course no longer matches');
+  });
+
+  it('DELETE /v1/admin/courses/:id returns 404 when course is missing', async () => {
+    db.getSyncData = async () => null;
+    const app = new Hono(); app.route('/', admin);
+    const res = await adminReq(app, 'DELETE', '/v1/admin/courses/missing');
+    assert.equal(res.status, 404);
+  });
+});
+
+describe('PUT /v1/admin/lessons/:lessonId — course assignment', () => {
+  const validMarkdown = `# Test Lesson
+
+A test lesson.
+
+## Exemplar
+Produce a thing.
+
+## Learning Objectives
+- Can do thing one
+- Can do thing two`;
+
+  beforeEach(() => {
+    db.getUserById = async () => ({ userId: 'usr_admin', role: 'admin', name: 'Admin', username: 'admin' });
+    db.getSyncData = async () => null;
+  });
+
+  it('persists the course field on create', async () => {
+    let saved = null;
+    db.putSyncData = async (uid, key, data) => { saved = data; };
+    const app = new Hono(); app.route('/', admin);
+    const res = await adminReq(app, 'PUT', '/v1/admin/lessons/l-1', {
+      markdown: validMarkdown, name: 'Test Lesson', course: 'c-1',
+    });
+    assert.equal(res.status, 200);
+    assert.equal(saved.course, 'c-1');
+  });
+
+  it('clears the course field when course=null is sent', async () => {
+    db.getSyncData = async () => ({ data: { markdown: validMarkdown, name: 'Test', status: 'public', course: 'c-old' }, version: 1 });
+    let saved = null;
+    db.putSyncData = async (uid, key, data) => { saved = data; };
+    const app = new Hono(); app.route('/', admin);
+    const res = await adminReq(app, 'PUT', '/v1/admin/lessons/l-1', { course: null });
+    assert.equal(res.status, 200);
+    assert.equal(saved.course, null);
+  });
+
+  it('rejects non-string course values', async () => {
+    const app = new Hono(); app.route('/', admin);
+    const res = await adminReq(app, 'PUT', '/v1/admin/lessons/l-1', {
+      markdown: validMarkdown, name: 'Test Lesson', course: 123,
+    });
+    assert.equal(res.status, 400);
+  });
+
+  it('preserves existing course when body omits the field', async () => {
+    db.getSyncData = async () => ({ data: { markdown: validMarkdown, name: 'Test', status: 'public', course: 'c-keep' }, version: 1 });
+    let saved = null;
+    db.putSyncData = async (uid, key, data) => { saved = data; };
+    const app = new Hono(); app.route('/', admin);
+    const res = await adminReq(app, 'PUT', '/v1/admin/lessons/l-1', { name: 'Renamed' });
+    assert.equal(res.status, 200);
+    assert.equal(saved.course, 'c-keep');
+  });
+});
+
+describe('GET /v1/admin/users/:userId/stats', () => {
+  beforeEach(() => {
+    db.getUserById = async (id) => {
+      if (id === 'usr_admin') return { userId: 'usr_admin', role: 'admin', name: 'Admin' };
+      if (id === 'usr_user') return { userId: 'usr_user', role: 'user', name: 'Non-admin' };
+      if (id === 'usr_learner') return { userId: 'usr_learner', role: 'user', name: 'Learner', email: 'l@x.com' };
+      return null;
+    };
+  });
+
+  it('returns 404 for unknown user', async () => {
+    const app = new Hono(); app.route('/', admin);
+    const res = await adminReq(app, 'GET', '/v1/admin/users/usr_missing/stats');
+    assert.equal(res.status, 404);
+  });
+
+  it('aggregates lessons completed, available, and percentiles', async () => {
+    db.getAllSyncData = async (uid) => {
+      if (uid === '_system') {
+        return [
+          { dataKey: 'lesson:l1', data: { name: 'Cognitive Load', status: 'public', markdown: '# L1' } },
+          { dataKey: 'lesson:l2', data: { name: 'Active Recall', status: 'public', markdown: '# L2' } },
+          { dataKey: 'lesson:l3', data: { name: 'Spaced Repetition', status: 'public', markdown: '# L3' } },
+          { dataKey: 'lesson:l4', data: { name: 'Draft Lesson', status: 'draft', markdown: '' } }, // excluded
+        ];
+      }
+      return [
+        { dataKey: 'lessonKB:l1', data: { status: 'completed', activitiesCompleted: 11, completedAt: '2026-05-01T12:00:00Z' } },
+        { dataKey: 'lessonKB:l2', data: { status: 'completed', activitiesCompleted: 22, completedAt: '2026-05-02T12:00:00Z' } },
+        { dataKey: 'lessonKB:l3', data: { status: 'in_progress', activitiesCompleted: 3 } },
+      ];
+    };
+    db.listAuditLogsForUser = async () => [];
+    const app = new Hono(); app.route('/', admin);
+    const res = await adminReq(app, 'GET', '/v1/admin/users/usr_learner/stats');
+    assert.equal(res.status, 200);
+    const data = await res.json();
+    assert.equal(data.lessonsCompleted, 2);
+    assert.equal(data.lessonsAvailable, 3, 'draft lesson should not count toward denominator');
+    assert.equal(data.lessonDurations.length, 2);
+    // p50 of [19.8, 39.6] → 39.6 (sorted[1] for p=50, idx = floor(0.5*2) = 1)
+    assert.equal(data.completionMinutesP50, 39.6);
+    assert.equal(data.completionMinutesP90, 39.6);
+    // Lesson names looked up from _system
+    const titles = data.lessonDurations.map((l) => l.lessonName).sort();
+    assert.deepEqual(titles, ['Active Recall', 'Cognitive Load']);
+  });
+
+  it('counts user_login audit entries within the window and ignores other actions', async () => {
+    db.getAllSyncData = async () => [];
+    db.listAuditLogsForUser = async () => [
+      { action: 'user_login', createdAt: new Date().toISOString() },
+      { action: 'user_login', createdAt: new Date(Date.now() - 60_000).toISOString() },
+      { action: 'admin_view_as_user_started', createdAt: new Date().toISOString() }, // ignored
+    ];
+    const app = new Hono(); app.route('/', admin);
+    const res = await adminReq(app, 'GET', '/v1/admin/users/usr_learner/stats?days=7');
+    assert.equal(res.status, 200);
+    const data = await res.json();
+    assert.equal(data.windowDays, 7);
+    assert.equal(data.loginsInWindow, 2);
+  });
+
+  it('rejects non-admin', async () => {
+    const app = new Hono(); app.route('/', admin);
+    const res = await userReq(app, 'GET', '/v1/admin/users/usr_learner/stats');
+    assert.equal(res.status, 403);
+  });
+});
+
+describe('GET /v1/admin/users?include=stats', () => {
+  beforeEach(() => {
+    db.getUserById = async (id) => {
+      if (id === 'usr_admin') return { userId: 'usr_admin', role: 'admin', name: 'Admin' };
+      return null;
+    };
+  });
+
+  it('reads denormalized counters directly when present (no per-user scan)', async () => {
+    db.listAllUsers = async () => [
+      { userId: 'u1', email: 'u1@x.com', name: 'U1', role: 'user', createdAt: '2024-01-01',
+        lessonsCompleted: 2, lastActiveAt: '2026-05-03T09:15:00.000Z' },
+    ];
+    const scanned = [];
+    db.getAllSyncData = async (uid) => {
+      scanned.push(uid);
+      if (uid === '_system') return [
+        { dataKey: 'lesson:l1', data: { status: 'public', markdown: '#' } },
+        { dataKey: 'lesson:l2', data: { status: 'public', markdown: '#' } },
+        { dataKey: 'lesson:l3', data: { status: 'private', markdown: '#', sharedWith: ['u1'] } },
+      ];
+      return [];
+    };
+    const app = new Hono(); app.route('/', admin);
+    const res = await adminReq(app, 'GET', '/v1/admin/users?include=stats');
+    assert.equal(res.status, 200);
+    const data = await res.json();
+    assert.equal(data[0].lessonsCompleted, 2);
+    assert.equal(data[0].lessonsAvailable, 3);
+    assert.equal(data[0].lastActiveAt, '2026-05-03T09:15:00.000Z');
+    assert.deepEqual(scanned, ['_system'], 'no per-user sync-data scan when counters exist');
+  });
+
+  it('lazy-backfills counters for legacy users on first read and persists them', async () => {
+    db.listAllUsers = async () => [
+      // No lessonsCompleted / lastActiveAt — pre-#136 user record
+      { userId: 'u1', email: 'u1@x.com', name: 'U1', role: 'user', createdAt: '2024-01-01' },
+    ];
+    db.getAllSyncData = async (uid) => {
+      if (uid === '_system') return [
+        { dataKey: 'lesson:l1', data: { status: 'public', markdown: '#' } },
+        { dataKey: 'lesson:l2', data: { status: 'public', markdown: '#' } },
+      ];
+      if (uid === 'u1') return [
+        { dataKey: 'lessonKB:l1', data: { status: 'completed' } },
+        { dataKey: 'lessonKB:l2', data: { status: 'completed' } },
+        { dataKey: 'messages:l1', data: [{ timestamp: '2026-05-03T09:15:00Z' }] },
+      ];
+      return [];
+    };
+    const writes = [];
+    db.setUserActivityField = async (userId, field, value) => { writes.push({ userId, field, value }); };
+    const app = new Hono(); app.route('/', admin);
+    const res = await adminReq(app, 'GET', '/v1/admin/users?include=stats');
+    assert.equal(res.status, 200);
+    const data = await res.json();
+    assert.equal(data[0].lessonsCompleted, 2);
+    assert.equal(data[0].lastActiveAt, '2026-05-03T09:15:00.000Z');
+    // Both fields persisted back to the user record so subsequent reads are O(1)
+    assert.ok(writes.some((w) => w.field === 'lessonsCompleted' && w.value === 2));
+    assert.ok(writes.some((w) => w.field === 'lastActiveAt' && w.value === '2026-05-03T09:15:00.000Z'));
+  });
+
+  it('omits stats fields by default', async () => {
+    db.listAllUsers = async () => [
+      { userId: 'u1', email: 'u1@x.com', name: 'U1', role: 'user', createdAt: '2024-01-01' },
+    ];
+    let scanned = false;
+    db.getAllSyncData = async () => { scanned = true; return []; };
+    const app = new Hono(); app.route('/', admin);
+    const res = await adminReq(app, 'GET', '/v1/admin/users');
+    assert.equal(res.status, 200);
+    const data = await res.json();
+    assert.equal(data[0].lessonsCompleted, undefined);
+    assert.equal(data[0].lessonsAvailable, undefined);
+    assert.equal(data[0].lastActiveAt, undefined);
+    assert.equal(scanned, false, 'base endpoint should not scan sync-data');
+  });
 });
