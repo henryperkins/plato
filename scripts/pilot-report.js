@@ -16,6 +16,7 @@
  */
 
 import { execFileSync } from 'node:child_process';
+import { dataLossGroups } from './data-loss-log-signal.js';
 
 const ISSUE_REF_RE = /(?:fixes|closes|resolves)\s+#(\d+)/gi;
 
@@ -192,7 +193,7 @@ async function collectKpis(apiUrl, token) {
 }
 
 async function collectLogs(apiUrl, token) {
-  const res = await fetch(`${apiUrl}/v1/admin/logs?view=groups`, {
+  const res = await fetch(`${apiUrl}/v1/admin/logs?view=both&limit=1000`, {
     headers: { Authorization: `Bearer ${token}` },
   });
   if (!res.ok) throw new Error(`Logs API failed: ${res.status}`);
@@ -220,12 +221,7 @@ function formatGroups(logs) {
 // "severity interrupt" rule keys off — a failed `/v1/sync` write is silent
 // learner data loss with no named author to file an issue for it (#195).
 function formatDataLossWatch(logs) {
-  const hits = (logs.groups || []).filter((g) => {
-    if (g.code !== 'unhandled_error') return false;
-    const m = g.sample?.meta || {};
-    const method = String(m.method || '').toUpperCase();
-    return (method === 'PUT' || method === 'POST') && String(m.path || '').startsWith('/v1/sync');
-  });
+  const hits = dataLossGroups(logs);
   if (!hits.length) {
     return '_No write-path (`/v1/sync`) server errors in the window._';
   }
@@ -351,7 +347,9 @@ ${formatReadyIssues(readyIssues, closedPilotPrs)}
   process.stdout.write(report);
 }
 
-main().catch((err) => {
-  console.error('pilot-report failed:', err.message);
-  process.exit(1);
-});
+if (import.meta.url === `file://${process.argv[1]}`) {
+  main().catch((err) => {
+    console.error('pilot-report failed:', err.message);
+    process.exit(1);
+  });
+}

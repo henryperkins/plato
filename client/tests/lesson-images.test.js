@@ -14,14 +14,20 @@ import assert from 'node:assert/strict';
 // In-memory server store, keyed like the sync-data table.
 const _serverStore = new Map();
 const _serverVersions = new Map();
+const _putFailurePrefixes = new Map();
+const _requests = [];
 
 globalThis.fetch = async (url, opts) => {
   const path = new URL(url, 'http://localhost').pathname;
+  _requests.push({ method: opts?.method || 'GET', path });
   const syncMatch = path.match(/^\/v1\/sync\/(.+)/);
   if (!syncMatch) return { ok: false, status: 404 };
   const key = decodeURIComponent(syncMatch[1]);
 
   if (opts?.method === 'PUT') {
+    for (const [prefix, status] of _putFailurePrefixes) {
+      if (key.startsWith(prefix)) return { ok: false, status, json: async () => ({}) };
+    }
     const body = JSON.parse(opts.body);
     const currentVersion = _serverVersions.get(key) || 0;
     if (body.version !== currentVersion) {
@@ -64,6 +70,7 @@ const {
 } = await import('../js/storage.js');
 const {
   hydrateMessageImages, migrateLegacyImages, resumeLesson,
+  sendMessage,
 } = await import('../src/lib/lessonEngine.js');
 
 const PNG = 'data:image/png;base64,iVBORw0KGgo=';
@@ -136,11 +143,44 @@ describe('hydrateMessageImages', () => {
   });
 });
 
+describe('sendMessage image persistence', () => {
+  beforeEach(() => {
+    clearCache();
+    _serverStore.clear();
+    _serverVersions.clear();
+    _putFailurePrefixes.clear();
+    _requests.length = 0;
+  });
+
+  it('rejects the send before calling the coach when an attached image is not durable', async () => {
+    _putFailurePrefixes.set('screenshot:lesson-wp-fail-', 413);
+
+    await assert.rejects(
+      () => sendMessage(
+        'wp-fail',
+        { name: 'Image lesson', description: 'Describe it', exemplar: 'Clear observation' },
+        'look at this',
+        [PNG],
+      ),
+      /Image could not be saved/,
+    );
+
+    assert.equal(_serverStore.has('messages:wp-fail'), false, 'message must not persist a dead image key');
+    assert.equal(
+      _requests.some((r) => r.path === '/v1/prompts/coach' || r.path === '/v1/ai/messages'),
+      false,
+      'coach must not be called after attachment persistence failed',
+    );
+  });
+});
+
 describe('migrateLegacyImages — heals pre-#193 conversations', () => {
   beforeEach(() => {
     clearCache();
     _serverStore.clear();
     _serverVersions.clear();
+    _putFailurePrefixes.clear();
+    _requests.length = 0;
     sessionStorage.clear();
   });
 

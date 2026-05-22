@@ -5,6 +5,7 @@ import { logger } from '../../src/lib/logger.js';
 // Silence the stdout mirror so test output stays clean.
 const origErr = console.error;
 const origWarn = console.warn;
+const origLog = console.log;
 console.error = () => {};
 console.warn = () => {};
 
@@ -22,6 +23,17 @@ describe('logger', () => {
     assert.equal(entries[0].code, 'seed_failed');
     assert.equal(entries[1].code, 'unhandled_error');
     assert.ok(entries[0].logId.startsWith('log_'));
+  });
+
+  it('supports stdout-only event logs without routing them through the error buffer', () => {
+    let captured = null;
+    console.log = (msg) => { captured = msg; };
+    logger.event('stats_async_refresh_completed', { function: 'plato-api' });
+
+    assert.match(captured || '', /stats_async_refresh_completed/);
+    assert.match(captured || '', /plato-api/);
+    assert.deepEqual(logger.recent(), []);
+    console.log = origLog;
   });
 
   it('coerces non-snake-case codes and emits logger_bad_code', () => {
@@ -97,4 +109,5 @@ describe('logger', () => {
 process.on('exit', () => {
   console.error = origErr;
   console.warn = origWarn;
+  console.log = origLog;
 });

@@ -23,6 +23,7 @@
  */
 
 import { execFileSync } from 'node:child_process';
+import { dataLossGroups } from './data-loss-log-signal.js';
 
 // One open issue carries the signal; while it is open the alert is already
 // raised, so further detections must not pile on duplicates.
@@ -48,19 +49,11 @@ async function login(apiUrl) {
 }
 
 /**
- * The write-path data-loss signature: an `unhandled_error` whose sample is a
- * PUT/POST to `/v1/sync` (the learner-data persistence surface). Matches the
- * "Data-loss watch" callout in scripts/pilot-report.js — keep the two in sync.
- * Exported for testing.
+ * The write-path data-loss signature: an `unhandled_error` on a PUT/POST to
+ * `/v1/sync` (the learner-data persistence surface). Re-exported for tests and
+ * kept shared with scripts/pilot-report.js.
  */
-export function dataLossGroups(logs) {
-  return (logs?.groups || []).filter((g) => {
-    if (g.code !== 'unhandled_error') return false;
-    const m = g.sample?.meta || {};
-    const method = String(m.method || '').toUpperCase();
-    return (method === 'PUT' || method === 'POST') && String(m.path || '').startsWith('/v1/sync');
-  });
-}
+export { dataLossGroups };
 
 function ensureLabels() {
   const labels = [
@@ -103,7 +96,7 @@ async function main() {
   if (!apiUrl) throw new Error('PLATO_API_URL is required');
 
   const token = await login(apiUrl);
-  const res = await fetch(`${apiUrl}/v1/admin/logs?view=groups`, {
+  const res = await fetch(`${apiUrl}/v1/admin/logs?view=both&limit=1000`, {
     headers: { Authorization: `Bearer ${token}` },
   });
   if (!res.ok) throw new Error(`logs API failed: ${res.status}`);

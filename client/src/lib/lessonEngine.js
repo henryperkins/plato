@@ -10,7 +10,7 @@
 import {
   getLearnerProfileSummary, getPreferences,
   getLessonKB, saveLessonKB,
-  saveScreenshot, getScreenshot,
+  saveScreenshot, getScreenshot, deleteScreenshot,
   saveLessonMessages, getLessonMessages, replaceLessonMessages,
 } from '../../js/storage.js';
 import * as orchestrator from '../../js/orchestrator.js';
@@ -212,7 +212,12 @@ export async function sendMessage(lessonId, lesson, text, imageDataUrl, onStream
     const url = imageDataUrls[i];
     assertImageWithinBedrockLimit(url);
     const key = `lesson-${lessonId}-${ts()}-${i}`;
-    await saveScreenshot(key, url);
+    if (!await saveScreenshot(key, url)) {
+      await Promise.all([...imageKeys, key].map(async (savedKey) => {
+        try { await deleteScreenshot(savedKey); } catch { /* best effort cleanup */ }
+      }));
+      throw new Error('Image could not be saved. Please resize it or try again.');
+    }
     imageKeys.push(key);
   }
 

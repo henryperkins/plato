@@ -45,6 +45,13 @@ function nextLogId() {
   return `log_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
+function writeStdout(level, code, meta) {
+  const payload = JSON.stringify({ level, code, ...meta });
+  if (level === 'error') console.error(payload);
+  else if (level === 'warn') console.warn(payload);
+  else console.log(payload);
+}
+
 function push(level, rawCode, rawMeta) {
   const originalCode = typeof rawCode === 'string' ? rawCode : '';
   const code = coerceCode(originalCode);
@@ -65,9 +72,7 @@ function push(level, rawCode, rawMeta) {
   // Mirror to stdout as structured JSON so Lambda → CloudWatch captures the
   // same shape. logId is included so the endpoint can dedupe when the same
   // event is retrieved from both the buffer and CloudWatch.
-  const payload = JSON.stringify({ logId: entry.logId, level, code, ...meta });
-  if (level === 'error') console.error(payload);
-  else console.warn(payload);
+  writeStdout(level, code, { logId: entry.logId, ...meta });
 
   // Surface code coercion as a separate warn event so misuse is visible.
   if (originalCode && originalCode !== code) {
@@ -78,6 +83,11 @@ function push(level, rawCode, rawMeta) {
 export const logger = {
   error(code, meta) { push('error', code, meta); },
   warn(code, meta) { push('warn', code, meta); },
+  event(code, meta) {
+    // Successful lifecycle events belong in stdout/CloudWatch, but not in the
+    // in-process error/warn ring buffer consumed by the pilot/log-watch views.
+    writeStdout('info', coerceCode(code), sanitizeMeta(meta));
+  },
 
   recent({ since, level, limit = 200 } = {}) {
     const sinceMs = since ? new Date(since).getTime() : 0;
