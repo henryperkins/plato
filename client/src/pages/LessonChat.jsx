@@ -429,7 +429,7 @@ export default function LessonChat() {
 
       {/* Inline compose — always in document flow for layout; invisible when pinned */}
       {phase && (
-        <div ref={composeAnchorRef} aria-hidden={composePinned || undefined} className={composePinned ? 'invisible' : ''}>
+        <div ref={composeAnchorRef} inert={composePinned || undefined} className={composePinned ? 'invisible' : ''}>
           <ComposeBar
             placeholder={impersonating ? 'Read-only — viewing as another user' : composePlaceholder}
             onSend={handleSend}
