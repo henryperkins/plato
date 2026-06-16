@@ -158,20 +158,14 @@ For the full deploy procedure, SSM parameters, and backup layers, see
 
 ## Branch protection
 
-`main` and `playground` are protected (required PR + 1 approving review + passing
-`review` status check from the Code Review workflow; no force pushes; no
-deletion). **Admins cannot bypass these rules** — the "Do not allow bypassing the
-above settings" checkbox is enabled, so even repository owners must go through the
-PR workflow.
+`main` and `playground` are ruleset-protected (Settings → Rules → Rulesets →
+"Protect main and playground"): required PR + 1 approving review + passing
+`review` status check from the Code Review workflow; no force pushes; no deletion.
 
-### Enforcing the no-bypass rule
-
-To enable this protection (or verify it's enabled):
-
-1. Go to **Settings** → **Branches** → **Branch protection rules**
-2. Edit the rule for `main` (and `playground`)
-3. Scroll to the bottom and check **"Do not allow bypassing the above settings"**
-4. Save changes
+**Bypass mode**: "Pull requests only" — repository admins **cannot push directly**
+to protected branches (even for emergencies), but can merge PRs without waiting
+for approvals. This enforces the PR workflow while preserving emergency merge
+capability.
 
 This ensures every change to production:
 - Goes through a PR (no direct pushes)
@@ -180,17 +174,16 @@ This ensures every change to production:
 
 ### Emergency hotfix procedure
 
-If you need to bypass protection for a true emergency (prod down, data loss in
-progress):
+For urgent production fixes:
 
-1. **Disable the rule temporarily**: Settings → Branches → Edit rule → Uncheck
-   "Do not allow bypassing" → Save
-2. Push your hotfix directly
-3. **Re-enable immediately**: Check "Do not allow bypassing" again
-4. Open a retroactive PR for the hotfix commit to document what happened
+1. Create a branch: `git checkout -b hotfix/brief-description`
+2. Make your fix and commit
+3. Push and open a PR: `gh pr create --title "Hotfix: ..." --body "..."`
+4. **Merge immediately** (bypass mode lets you merge without waiting for review)
+5. The code review workflow will run post-merge for audit
 
-The temporary disable should be minutes, not hours — it's a break-glass mechanism,
-not a workflow mode.
+The ruleset blocks direct pushes but doesn't block merges — you retain emergency
+override via the merge button, just not via `git push origin main`.
 
 ## Versioning
 
