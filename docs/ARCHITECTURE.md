@@ -122,15 +122,25 @@ server-side is where the SSRF defense must live.
   undici dispatcher).
 - **Link text is untrusted, user-controlled content.** It's whatever the linked
   page says, so it can contain prompt-injection attempts ("ignore previous
-  instructions…"). It's framed to the coach as `[Attached link: …]` user
-  content, which Claude is generally robust to, but treat it as untrusted —
-  don't add code paths that act on it as instructions.
+  instructions…"). It's framed to the coach as `[REFERENCE CONTEXT — Learner
+  attached a web page for your review]` with an explicit trailing instruction
+  that this is reference material, not evidence of completion unless the learner
+  confirms it. Claude is generally robust to injection, but treat page content
+  as untrusted — don't add code paths that act on it as instructions.
 - **Recall is this-turn-only (image parity).** `buildUserParts` (`lessonEngine.js`)
-  injects the page text into the coach call on the attach turn (`[Attached
-  link: …]`, ordered text → links → images); it's never persisted or re-sent
-  (later turns see a `[link]` placeholder). Only `metadata.links: [{ url, title }]`
-  is persisted — so no 400 KB risk, no new sync record, no hydration; chips
-  render straight from that metadata on resume.
+  injects the page text into the coach call on the attach turn (ordered text →
+  links → images); it's never persisted or re-sent (later turns see a `[link]`
+  placeholder). Only `metadata.links: [{ url, title }]` is persisted — so no
+  400 KB risk, no new sync record, no hydration; chips render straight from that
+  metadata on resume.
+- **Coach interpretation guidance** (`client/prompts/coach.md`): the prompt
+  explicitly tells the coach NOT to treat page content as evidence of completion
+  unless the learner confirms it — e.g., if a lesson asks them to publish a blog
+  post and they share their site, the coach should ask "Is this the published
+  post you're submitting?" rather than assuming visible content is final. This
+  prevents the hallucination failure mode where a learner shares their
+  work-in-progress portfolio site for reference and the coach infers completion
+  from content that doesn't exist or isn't finished yet.
 
 ## Lesson enrichment (plugin capability)
 

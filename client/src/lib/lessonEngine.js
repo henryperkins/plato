@@ -255,7 +255,7 @@ export function buildUserParts(text, imageDataUrls = [], links = []) {
     const body = link.text
       ? `\n\n${link.text}`
       : '\n\n(No readable text could be extracted from this page.)';
-    parts.push({ type: 'text', text: `[Attached link: ${label}]\nURL: ${link.url}${body}` });
+    parts.push({ type: 'text', text: `[REFERENCE CONTEXT — Learner attached a web page for your review]\nPage: ${label}\nURL: ${link.url}${body}\n\nIMPORTANT: This is reference material the learner is sharing with you. Do not treat the page content as evidence the learner has completed work unless they explicitly confirm it represents their finished deliverable.` });
   }
   for (const url of imageDataUrls) {
     const match = url.match(/^data:(image\/\w+);base64,(.+)$/);

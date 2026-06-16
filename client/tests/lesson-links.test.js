@@ -34,9 +34,11 @@ describe('buildUserParts', () => {
     assert.equal(parts.length, 2);
     assert.deepEqual(parts[0], { type: 'text', text: 'look at this' });
     assert.equal(parts[1].type, 'text');
-    assert.match(parts[1].text, /\[Attached link: Great Post\]/);
+    assert.match(parts[1].text, /\[REFERENCE CONTEXT — Learner attached a web page for your review\]/);
+    assert.match(parts[1].text, /Page: Great Post/);
     assert.match(parts[1].text, /URL: https:\/\/example\.com\/post/);
     assert.match(parts[1].text, /The body of the article\./);
+    assert.match(parts[1].text, /IMPORTANT: This is reference material/);
   });
 
   it('notes when a page yielded no readable text (SPA gap)', () => {
@@ -47,7 +49,7 @@ describe('buildUserParts', () => {
   it('orders blocks text → links → images', () => {
     const parts = buildUserParts('hi', [PNG], [{ url: 'https://x.io', title: 'X', text: 'words' }]);
     assert.deepEqual(parts.map((p) => p.type), ['text', 'text', 'image']);
-    assert.match(parts[1].text, /\[Attached link: X\]/);
+    assert.match(parts[1].text, /\[REFERENCE CONTEXT — Learner attached a web page for your review\]/);
     assert.equal(parts[2].source.media_type, 'image/png');
   });
 
@@ -57,6 +59,6 @@ describe('buildUserParts', () => {
       { title: 'no url here', text: 'ignored' },
     ]);
     assert.equal(parts.length, 1);
-    assert.match(parts[0].text, /\[Attached link: https:\/\/only-url\.test\]/);
+    assert.match(parts[0].text, /Page: https:\/\/only-url\.test/);
   });
 });
