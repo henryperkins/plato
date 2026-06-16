@@ -158,10 +158,39 @@ For the full deploy procedure, SSM parameters, and backup layers, see
 
 ## Branch protection
 
-`main` and `playground` are ruleset-protected (required PR + 1 approving review +
-passing `review` status check from the Code Review workflow; no force pushes; no
-deletion). Blake as repository admin is on the bypass list with
-`bypass_mode: always` for emergency overrides.
+`main` and `playground` are protected (required PR + 1 approving review + passing
+`review` status check from the Code Review workflow; no force pushes; no
+deletion). **Admins cannot bypass these rules** — the "Do not allow bypassing the
+above settings" checkbox is enabled, so even repository owners must go through the
+PR workflow.
+
+### Enforcing the no-bypass rule
+
+To enable this protection (or verify it's enabled):
+
+1. Go to **Settings** → **Branches** → **Branch protection rules**
+2. Edit the rule for `main` (and `playground`)
+3. Scroll to the bottom and check **"Do not allow bypassing the above settings"**
+4. Save changes
+
+This ensures every change to production:
+- Goes through a PR (no direct pushes)
+- Gets code-reviewed by the Bedrock workflow
+- Runs the full CI suite (lint, tests, CodeQL)
+
+### Emergency hotfix procedure
+
+If you need to bypass protection for a true emergency (prod down, data loss in
+progress):
+
+1. **Disable the rule temporarily**: Settings → Branches → Edit rule → Uncheck
+   "Do not allow bypassing" → Save
+2. Push your hotfix directly
+3. **Re-enable immediately**: Check "Do not allow bypassing" again
+4. Open a retroactive PR for the hotfix commit to document what happened
+
+The temporary disable should be minutes, not hours — it's a break-glass mechanism,
+not a workflow mode.
 
 ## Versioning
 
