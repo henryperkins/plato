@@ -28,6 +28,7 @@ Resources:
   PlatoApiFunction:
     Type: AWS::Serverless::Function
     Properties:
+      Timeout: 120
       Handler: src/index.handler
       CodeUri: .
       Environment:

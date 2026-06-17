@@ -3,8 +3,7 @@
  * All API calls go through the server proxy (authenticatedFetch).
  */
 
-export const MODEL_LIGHT = 'claude-haiku-4-5-20251001';
-export const MODEL_HEAVY = 'claude-sonnet-4-6';
+export const LLM = 'claude-haiku-4-5-20251001';
 
 export class ApiError extends Error {
   constructor(type, message, status) {

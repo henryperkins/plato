@@ -3,7 +3,7 @@
  * parses structured JSON responses.
  */
 
-import { parseSSEStream, parseResponse, MODEL_LIGHT, ApiError } from './api.js';
+import { parseSSEStream, parseResponse, LLM, ApiError } from './api.js';
 import { authenticatedFetch } from './auth.js';
 import { validateLessonKB } from './validators.js';
 
@@ -142,7 +142,7 @@ export async function converseStream(promptName, messages, onChunk, maxTokens = 
   const resp = await authenticatedFetch('/v1/ai/messages', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model: MODEL_LIGHT, max_tokens: maxTokens, system: systemPrompt, messages, stream: true }),
+    body: JSON.stringify({ model: LLM, max_tokens: maxTokens, system: systemPrompt, messages, stream: true }),
   });
   const contentType = resp.headers.get('content-type') || '';
   if (resp.ok && contentType.includes('text/event-stream')) {
@@ -168,7 +168,7 @@ export async function initializeLessonKB(lesson, profileSummary) {
   });
   const callAgent = async () => {
     const { content } = await callApi({
-      model: MODEL_LIGHT, systemPrompt,
+      model: LLM, systemPrompt,
       messages: [{ role: 'user', content: userContent }], maxTokens: 1536,
     });
     return parseJSON(content);
@@ -196,7 +196,7 @@ export async function updateProfileOnCompletion(fullProfile, lessonKB, lessonNam
   const systemPrompt = await loadPrompt('learner-profile-owner');
   const userContent = JSON.stringify({ currentProfile: profileForAgent(fullProfile), lessonKB, activitiesCompleted, lessonName, lessonId });
   const { content } = await callApi({
-    model: MODEL_LIGHT, systemPrompt,
+    model: LLM, systemPrompt,
     messages: [{ role: 'user', content: userContent }], maxTokens: 1024,
   });
   return parseJSON(content);
@@ -221,7 +221,7 @@ export async function updateProfileFromFeedback(fullProfile, feedbackText, activ
     context: { lessonName: activityContext.lessonName, activityType: activityContext.activityType, activityGoal: activityContext.activityGoal, timestamp: Date.now() },
   });
   const { content } = await callApi({
-    model: MODEL_LIGHT, systemPrompt,
+    model: LLM, systemPrompt,
     messages: [{ role: 'user', content: userContent }], maxTokens: 1024,
   });
   return parseJSON(content);
@@ -239,7 +239,7 @@ export async function updateCourseProgress(courseName, lessonsInCourse, priorSum
     completedLessonIds: completedLessonIds || [],
   });
   const { content } = await callApi({
-    model: MODEL_LIGHT, systemPrompt,
+    model: LLM, systemPrompt,
     messages: [{ role: 'user', content: userContent }], maxTokens: 1024,
   });
   return parseJSON(content);
@@ -250,7 +250,7 @@ export async function updateCourseProgress(courseName, lessonsInCourse, priorSum
 export async function extractLessonMarkdown(conversationText) {
   const systemPrompt = await loadPrompt('lesson-extractor');
   const { content } = await callApi({
-    model: MODEL_LIGHT, systemPrompt,
+    model: LLM, systemPrompt,
     messages: [{ role: 'user', content: conversationText }], maxTokens: 1536,
   });
   return content.trim();
@@ -264,7 +264,7 @@ export async function extractKBMarkdown(conversationText, existingKB = '') {
     ? `## EXISTING KNOWLEDGE BASE\n\n${existingKB}\n\n## CONVERSATION\n\n${conversationText}`
     : `## EXISTING KNOWLEDGE BASE\n\n(none — creating from scratch)\n\n## CONVERSATION\n\n${conversationText}`;
   const { content } = await callApi({
-    model: MODEL_LIGHT, systemPrompt,
+    model: LLM, systemPrompt,
     messages: [{ role: 'user', content: userContent }], maxTokens: 4096,
   });
   return content.trim();
