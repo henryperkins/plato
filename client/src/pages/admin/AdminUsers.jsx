@@ -134,18 +134,25 @@ export default function AdminUsers() {
   const [slackQueue, setSlackQueue] = useState([]);
   const [slackSending, setSlackSending] = useState(false);
 
+  // Link invite state
+  const [linkInvite, setLinkInvite] = useState(null);
+  const [linkCopied, setLinkCopied] = useState(false);
+  const [linkGenerating, setLinkGenerating] = useState(false);
+
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const [usersRes, invitesRes, settingsRes, pluginsRes] = await Promise.all([
+      const [usersRes, invitesRes, settingsRes, pluginsRes, linkRes] = await Promise.all([
         adminApi('GET', '/v1/admin/users?include=stats'),
         adminApi('GET', '/v1/admin/invites'),
         adminApi('GET', '/v1/admin/settings'),
         adminApi('GET', '/v1/admin/plugins').catch(() => []),
+        adminApi('GET', '/v1/admin/invites/link').catch(() => null),
       ]);
       setUsers(Array.isArray(usersRes) ? usersRes : []);
       setPendingInvites(Array.isArray(invitesRes) ? invitesRes.filter(x => x.status === 'pending') : []);
       setGroups(settingsRes.userGroups || []);
+      setLinkInvite(linkRes);
       // Slack connection status comes from the plugin's settings, not legacy _system:settings.slack.
       // The Slack tab is hidden when the plugin is disabled OR not connected.
       const slack = Array.isArray(pluginsRes) ? pluginsRes.find((entry) => entry.id === 'slack') : null;
@@ -164,7 +171,9 @@ export default function AdminUsers() {
   const existingEmails = useMemo(() => {
     const set = new Set();
     for (const u of users) set.add(u.email.toLowerCase());
-    for (const inv of pendingInvites) set.add(inv.email.toLowerCase());
+    for (const inv of pendingInvites) {
+      if (inv.email) set.add(inv.email.toLowerCase()); // Skip link invites (email is null)
+    }
     return set;
   }, [users, pendingInvites]);
 
@@ -352,6 +361,44 @@ export default function AdminUsers() {
     }
   }
 
+  // -- Link invite handlers --
+
+  async function handleGenerateLink() {
+    setLinkGenerating(true);
+    try {
+      const data = await adminApi('POST', '/v1/admin/invites/link');
+      setLinkInvite(data);
+      setMessage({ text: 'Invite link generated', type: 'success' });
+    } catch (e) {
+      setMessage({ text: e.message, type: 'error' });
+    } finally {
+      setLinkGenerating(false);
+    }
+  }
+
+  async function handleRegenerateLink() {
+    if (!confirm('Regenerate invite link? The old link will stop working.')) return;
+    await handleGenerateLink();
+  }
+
+  async function handleDeleteLink() {
+    if (!confirm('Delete invite link? This cannot be undone.')) return;
+    try {
+      await adminApi('DELETE', '/v1/admin/invites/link');
+      setLinkInvite(null);
+      setMessage({ text: 'Invite link deleted', type: 'success' });
+    } catch (e) {
+      setMessage({ text: e.message, type: 'error' });
+    }
+  }
+
+  function handleCopyLink() {
+    const url = `${window.location.origin}/signup?token=${linkInvite.inviteToken}`;
+    navigator.clipboard.writeText(url);
+    setLinkCopied(true);
+    setTimeout(() => setLinkCopied(false), 2000);
+  }
+
   // -- User actions --
 
   async function resendInvite(email) {
@@ -453,9 +500,12 @@ export default function AdminUsers() {
 
   const combinedList = useMemo(() => {
     // Build unified list: invites first, then users
+    // Filter out link invites (shown in the Link tab, not the user list)
     const items = [];
     for (const inv of pendingInvites) {
-      items.push({ _type: 'invite', _key: inv.inviteToken, email: inv.email, name: null, username: null, userGroup: null, role: null, createdAt: inv.createdAt, _invite: inv });
+      if (!inv.isLink) {
+        items.push({ _type: 'invite', _key: inv.inviteToken, email: inv.email, name: null, username: null, userGroup: null, role: null, createdAt: inv.createdAt, _invite: inv });
+      }
     }
     for (const u of users) {
       items.push({ _type: 'user', _key: u.userId, email: u.email, name: u.name, username: u.username, userGroup: u.userGroup, role: u.role, createdAt: u.createdAt, _user: u });
@@ -799,12 +849,11 @@ export default function AdminUsers() {
           )}
 
           <Tabs defaultValue="email" value={inviteTab} onValueChange={(v) => { setInviteTab(v); setInviteNotice(null); if (v === 'slack' && slackChannels.length === 0) loadSlackChannels(); }}>
-          {slackConnected && (
             <TabsList className="mb-4" aria-label="Invite method">
-              <TabsTrigger value="email">Email</TabsTrigger>
-              <TabsTrigger value="slack">Slack</TabsTrigger>
+              <TabsTrigger value="email" aria-label="Invite via email">Email</TabsTrigger>
+              {slackConnected && <TabsTrigger value="slack" aria-label="Invite via Slack">Slack</TabsTrigger>}
+              <TabsTrigger value="link" aria-label="Invite via shareable link">Link</TabsTrigger>
             </TabsList>
-          )}
 
           {/* Email tab */}
           <TabsContent value="email">
@@ -935,6 +984,70 @@ export default function AdminUsers() {
                 </Button>
               </DialogFooter>
             </div>
+          </TabsContent>
+
+          {/* Link tab */}
+          <TabsContent value="link">
+            {linkInvite ? (
+              <div className="space-y-4">
+                <div className="rounded-lg border p-4 bg-muted/50">
+                  <Label htmlFor="invite-link">Shareable Invite Link</Label>
+                  <div className="flex gap-2 mt-2">
+                    <Input
+                      id="invite-link"
+                      readOnly
+                      value={`${window.location.origin}/signup?token=${linkInvite.inviteToken}`}
+                      className="font-mono text-sm"
+                    />
+                    <Button onClick={handleCopyLink} variant="outline">
+                      {linkCopied ? 'Copied!' : 'Copy'}
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="text-sm text-muted-foreground space-y-1">
+                  <p>Created: {new Date(linkInvite.createdAt).toLocaleDateString()}</p>
+                  <p>Used by: {linkInvite.usageCount || 0} {(linkInvite.usageCount || 0) === 1 ? 'person' : 'people'}</p>
+                  <p>Expires: {new Date(linkInvite.ttl * 1000).toLocaleDateString()}</p>
+                </div>
+
+                <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
+                  <p className="text-sm text-amber-900">
+                    <strong>Security note:</strong> Anyone with this link can create an account.
+                    Only share it in trusted channels. Regenerate to revoke the old link.
+                  </p>
+                </div>
+
+                <DialogFooter>
+                  <Button variant="outline" onClick={handleDeleteLink}>
+                    Delete Link
+                  </Button>
+                  <Button onClick={handleRegenerateLink} disabled={linkGenerating}>
+                    {linkGenerating ? 'Regenerating...' : 'Regenerate Link'}
+                  </Button>
+                </DialogFooter>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <p className="text-sm text-muted-foreground">
+                  Create a shareable invite link that anyone can use to sign up.
+                  The link expires after 7 days and can be regenerated anytime.
+                </p>
+
+                <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
+                  <p className="text-sm text-amber-900">
+                    <strong>Security note:</strong> Anyone with this link can create an account.
+                    Only share it in trusted channels.
+                  </p>
+                </div>
+
+                <DialogFooter>
+                  <Button onClick={handleGenerateLink} disabled={linkGenerating}>
+                    {linkGenerating ? 'Generating...' : 'Generate Invite Link'}
+                  </Button>
+                </DialogFooter>
+              </div>
+            )}
           </TabsContent>
           </Tabs>
         </DialogContent>

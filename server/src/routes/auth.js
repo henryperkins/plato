@@ -99,7 +99,7 @@ auth.post('/v1/auth/setup', async (c) => {
 
 // POST /v1/auth/signup — sign up with invite token
 auth.post('/v1/auth/signup', async (c) => {
-  const { inviteToken, name, password, username: rawUsername, userGroup } = await c.req.json();
+  const { inviteToken, name, password, username: rawUsername, userGroup, email: providedEmail } = await c.req.json();
 
   if (!inviteToken || !name || !password) {
     return c.json({ error: 'inviteToken, name, and password are required' }, 400);
@@ -118,7 +118,27 @@ auth.post('/v1/auth/signup', async (c) => {
     return c.json({ error: 'Invalid or expired invite' }, 400);
   }
 
-  const existing = await db.getUserByEmail(invite.email);
+  // Determine the email based on invite type
+  let userEmail;
+  if (invite.email) {
+    // Email-specific invite: email must match if provided (for backwards compat, providedEmail is optional)
+    if (providedEmail && providedEmail.toLowerCase() !== invite.email.toLowerCase()) {
+      return c.json({ error: 'This invite is for a different email address' }, 400);
+    }
+    userEmail = invite.email;
+  } else if (invite.isLink) {
+    // Link invite: any email allowed, but email is required
+    if (!providedEmail) {
+      return c.json({ error: 'Email is required' }, 400);
+    }
+    userEmail = providedEmail.toLowerCase();
+    // NOTE: Usage limit check is done atomically in incrementLinkUsage() to prevent race conditions.
+    // The check-then-increment here would allow concurrent signups to exceed the limit.
+  } else {
+    return c.json({ error: 'Invalid invite type' }, 400);
+  }
+
+  const existing = await db.getUserByEmail(userEmail);
   if (existing) {
     return c.json({ error: 'Account already exists for this email' }, 409);
   }
@@ -131,12 +151,27 @@ auth.post('/v1/auth/signup', async (c) => {
     if (existingUsername) return c.json({ error: 'Username already taken' }, 409);
   }
 
+  // For link invites, increment usage count BEFORE creating the user.
+  // The atomic operation must gate account creation to prevent orphaned accounts
+  // when the usage limit is reached during concurrent signups.
+  if (invite.isLink) {
+    try {
+      await db.incrementLinkUsage(inviteToken);
+    } catch (err) {
+      if (err.name === 'ConditionalCheckFailedException') {
+        // Usage limit reached - this is the authoritative check (atomic, race-free)
+        return c.json({ error: 'This invite link has reached its usage limit' }, 400);
+      }
+      throw err;
+    }
+  }
+
   const userId = generateUserId();
   const passwordHash = await hashPassword(password);
 
   await db.createUser({
     userId,
-    email: invite.email,
+    email: userEmail,
     username,
     passwordHash,
     name,
@@ -145,9 +180,19 @@ auth.post('/v1/auth/signup', async (c) => {
     slackUserId: invite.slackUserId || null,
   });
 
-  await emitHook('userCreated', { userId, email: invite.email, role: 'user' });
+  await emitHook('userCreated', { userId, email: userEmail, role: 'user' });
 
-  await db.markInviteUsed(inviteToken);
+  // Mark invite as used after successful user creation
+  if (invite.isLink) {
+    // Check if we should mark the invite as used (maxUsages reached)
+    const updated = await db.getInvite(inviteToken);
+    if (updated.maxUsages && updated.usageCount >= updated.maxUsages) {
+      await db.markInviteUsed(inviteToken);
+    }
+  } else {
+    // Email-specific invites are marked as used immediately
+    await db.markInviteUsed(inviteToken);
+  }
 
   const accessToken = await signAccessToken(userId, 'user');
   const refreshToken = generateRefreshToken();
@@ -156,7 +201,7 @@ auth.post('/v1/auth/signup', async (c) => {
   return c.json({
     accessToken,
     refreshToken,
-    user: { userId, email: invite.email, username, name, role: 'user' },
+    user: { userId, email: userEmail, username, name, role: 'user' },
   }, 201);
 });
 

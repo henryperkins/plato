@@ -131,6 +131,62 @@ if (hasSlackInvite.count === 0) {
   sqlite.exec('ALTER TABLE invites ADD COLUMN slackUserId TEXT');
 }
 
+// Add link invite columns if missing
+const hasIsLink = sqlite.prepare(
+  "SELECT COUNT(*) as count FROM pragma_table_info('invites') WHERE name = 'isLink'"
+).get();
+if (hasIsLink.count === 0) {
+  sqlite.exec('ALTER TABLE invites ADD COLUMN isLink INTEGER DEFAULT 0');
+}
+const hasUsageCount = sqlite.prepare(
+  "SELECT COUNT(*) as count FROM pragma_table_info('invites') WHERE name = 'usageCount'"
+).get();
+if (hasUsageCount.count === 0) {
+  sqlite.exec('ALTER TABLE invites ADD COLUMN usageCount INTEGER DEFAULT 0');
+}
+const hasMaxUsages = sqlite.prepare(
+  "SELECT COUNT(*) as count FROM pragma_table_info('invites') WHERE name = 'maxUsages'"
+).get();
+if (hasMaxUsages.count === 0) {
+  sqlite.exec('ALTER TABLE invites ADD COLUMN maxUsages INTEGER');
+}
+// Make email nullable for link invites
+// SQLite doesn't support ALTER COLUMN, so we need to recreate the table
+// Check if email is still NOT NULL
+const emailNotNull = sqlite.prepare(
+  "SELECT COUNT(*) as count FROM pragma_table_info('invites') WHERE name = 'email' AND \"notnull\" = 1"
+).get();
+
+if (emailNotNull.count > 0) {
+  // Need to migrate: recreate table with nullable email
+  sqlite.exec(`
+    -- Create new table with nullable email
+    CREATE TABLE invites_new (
+      inviteToken TEXT PRIMARY KEY,
+      email TEXT COLLATE NOCASE,
+      invitedBy TEXT,
+      slackUserId TEXT,
+      status TEXT DEFAULT 'pending',
+      createdAt TEXT NOT NULL,
+      usedAt TEXT,
+      ttl INTEGER,
+      isLink INTEGER DEFAULT 0,
+      usageCount INTEGER DEFAULT 0,
+      maxUsages INTEGER
+    );
+
+    -- Copy existing data
+    INSERT INTO invites_new (inviteToken, email, invitedBy, slackUserId, status, createdAt, usedAt, ttl, isLink, usageCount, maxUsages)
+    SELECT inviteToken, email, invitedBy, slackUserId, status, createdAt, usedAt, ttl,
+           COALESCE(isLink, 0), COALESCE(usageCount, 0), maxUsages
+    FROM invites;
+
+    -- Drop old table and rename new one
+    DROP TABLE invites;
+    ALTER TABLE invites_new RENAME TO invites;
+  `);
+}
+
 // -- TTL cleanup (runs on startup and periodically) ---------------------------
 
 function cleanupExpired() {
@@ -218,13 +274,23 @@ const db = {
 
   // ── Invites ──
 
-  async createInvite({ inviteToken, email, invitedBy, slackUserId }) {
+  async createInvite({ inviteToken, email, invitedBy, slackUserId, isLink = false, usageCount = 0, maxUsages = null }) {
     const now = new Date();
     const ttl = Math.floor(now.getTime() / 1000) + INVITE_TTL_DAYS * 86400;
     sqlite.prepare(
-      `INSERT INTO invites (inviteToken, email, invitedBy, slackUserId, status, createdAt, ttl)
-       VALUES (?, ?, ?, ?, 'pending', ?, ?)`
-    ).run(inviteToken, email.toLowerCase(), invitedBy, slackUserId || null, now.toISOString(), ttl);
+      `INSERT INTO invites (inviteToken, email, invitedBy, slackUserId, status, createdAt, ttl, isLink, usageCount, maxUsages)
+       VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?)`
+    ).run(
+      inviteToken,
+      email ? email.toLowerCase() : null,
+      invitedBy,
+      slackUserId || null,
+      now.toISOString(),
+      ttl,
+      isLink ? 1 : 0,
+      usageCount,
+      maxUsages
+    );
   },
 
   async getInviteByEmail(email) {
@@ -249,6 +315,44 @@ const db = {
 
   async listInvites() {
     return sqlite.prepare('SELECT * FROM invites').all();
+  },
+
+  async getInviteLinkToken() {
+    const row = sqlite.prepare(
+      "SELECT * FROM invites WHERE isLink = 1 AND status = 'pending' LIMIT 1"
+    ).get();
+    return row || null;
+  },
+
+  async incrementLinkUsage(inviteToken) {
+    // Atomic increment with usage limit check to prevent race condition.
+    // If maxUsages is set and would be exceeded, the update affects 0 rows.
+    const result = sqlite.prepare(
+      `UPDATE invites SET usageCount = usageCount + 1
+       WHERE inviteToken = ?
+       AND (maxUsages IS NULL OR usageCount < maxUsages)`
+    ).run(inviteToken);
+
+    if (result.changes === 0) {
+      // Either token doesn't exist or maxUsages limit reached
+      const invite = sqlite.prepare('SELECT * FROM invites WHERE inviteToken = ?').get(inviteToken);
+      if (!invite) {
+        // Token doesn't exist - match DynamoDB behavior (would throw on non-existent key)
+        const err = new Error('Invite not found');
+        err.name = 'ConditionalCheckFailedException';
+        throw err;
+      }
+      if (invite.maxUsages && invite.usageCount >= invite.maxUsages) {
+        const err = new Error('Usage limit reached');
+        err.name = 'ConditionalCheckFailedException';
+        throw err;
+      }
+      // If we get here, the WHERE clause failed for some other reason (not pending, etc.)
+      // This is unreachable in normal flow (validated earlier in auth.js), so throw anyway
+      const err = new Error('Could not increment usage count');
+      err.name = 'ConditionalCheckFailedException';
+      throw err;
+    }
   },
 
   // ── Refresh Tokens ──
