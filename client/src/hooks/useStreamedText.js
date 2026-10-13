@@ -13,6 +13,7 @@ import { useState, useEffect, useRef } from 'react';
  * again, the display catches up immediately.
  */
 export function useStreamedText(rawText) {
+  const [motionPreference] = useState(() => window.matchMedia('(prefers-reduced-motion: reduce)'));
   const [display, setDisplay] = useState(null);
   const bufferRef = useRef('');
   const posRef = useRef(0);
@@ -52,7 +53,8 @@ export function useStreamedText(rawText) {
       // Catch up if we were throttled (e.g., tab was hidden)
       // Advance by at least 1 char, or more if time has passed
       const charsToAdd = Math.max(1, Math.floor(elapsed / 30));
-      const newPos = Math.min(posRef.current + charsToAdd, target.length);
+      // Reduced motion shows each received chunk without artificial typing.
+      const newPos = motionPreference.matches ? target.length : Math.min(posRef.current + charsToAdd, target.length);
 
       if (newPos > posRef.current) {
         posRef.current = newPos;
@@ -80,7 +82,7 @@ export function useStreamedText(rawText) {
         timerRef.current = null;
       }
     };
-  }, [rawText]);
+  }, [rawText, motionPreference]);
 
   // Catch up immediately when tab becomes visible
   useEffect(() => {

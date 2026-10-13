@@ -33,14 +33,16 @@ export default function Settings() {
 
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  const [passwordFeedback, setPasswordFeedback] = useState('');
+  const [passwordFeedback, setPasswordFeedback] = useState(null);
   const [passwordSubmitting, setPasswordSubmitting] = useState(false);
-  const [nameFeedback, setNameFeedback] = useState('');
-  const [usernameFeedback, setUsernameFeedback] = useState('');
+  const [nameFeedback, setNameFeedback] = useState(null);
+  const [nameSubmitting, setNameSubmitting] = useState(false);
+  const [usernameFeedback, setUsernameFeedback] = useState(null);
+  const [usernameSubmitting, setUsernameSubmitting] = useState(false);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [userFields, setUserFields] = useState([]);
   const [fieldValues, setFieldValues] = useState({});
-  const [fieldsFeedback, setFieldsFeedback] = useState('');
+  const [fieldsFeedback, setFieldsFeedback] = useState(null);
   const [fieldsSaving, setFieldsSaving] = useState(false);
 
   useEffect(() => {
@@ -57,96 +59,104 @@ export default function Settings() {
 
   const handleSaveFields = async (e) => {
     e.preventDefault();
+    if (fieldsSaving) return;
+    setFieldsFeedback(null);
     if (missingRequired(userFields, fieldValues).length) {
-      setFieldsFeedback('Fill in all required fields.');
+      setFieldsFeedback({ type: 'error', message: 'Fill in all required fields.' });
       return;
     }
     setFieldsSaving(true);
     try {
       const data = await updateProfile({ customFields: pickValues(fieldValues, userFields.map((f) => f.id)) });
       setFieldValues(data.customFields || {});
-      setFieldsFeedback('Saved!');
+      setFieldsFeedback({ type: 'success', message: 'Saved!' });
     } catch (err) {
-      setFieldsFeedback(err.message || 'Failed to update');
+      setFieldsFeedback({ type: 'error', message: err.message || 'Failed to update' });
     } finally {
       setFieldsSaving(false);
     }
-    setTimeout(() => setFieldsFeedback(''), 3000);
   };
 
   const handleSaveUsername = async (e) => {
     e.preventDefault();
+    if (usernameSubmitting) return;
+    setUsernameFeedback(null);
     const trimmed = username.trim();
     if (!trimmed) {
-      setUsernameFeedback('Username is required');
-      setTimeout(() => setUsernameFeedback(''), 2000);
+      setUsernameFeedback({ type: 'error', message: 'Username is required' });
       return;
     }
+    setUsernameSubmitting(true);
     try {
       await updateProfile({ username: trimmed });
       await refreshUser();
-      setUsernameFeedback('Saved!');
+      setUsernameFeedback({ type: 'success', message: 'Saved!' });
     } catch (err) {
-      setUsernameFeedback(err.message || 'Failed to update');
+      setUsernameFeedback({ type: 'error', message: err.message || 'Failed to update' });
+    } finally {
+      setUsernameSubmitting(false);
     }
-    setTimeout(() => setUsernameFeedback(''), 2000);
   };
 
   const handleSaveName = async (e) => {
     e.preventDefault();
+    if (nameSubmitting) return;
+    setNameFeedback(null);
+    setNameSubmitting(true);
     const trimmed = name.trim();
     const prefs = { ...state.preferences, name: trimmed };
-    await savePreferences(prefs);
-    dispatch({ type: 'SET_PREFERENCES', preferences: prefs });
-    syncInBackground('preferences');
 
     try {
+      await savePreferences(prefs);
+      dispatch({ type: 'SET_PREFERENCES', preferences: prefs });
+      syncInBackground('preferences');
       await updateProfile({ name: trimmed });
       await refreshUser();
-      setNameFeedback('Saved!');
+      setNameFeedback({ type: 'success', message: 'Saved!' });
     } catch (err) {
-      setNameFeedback(err.message || 'Failed to update');
+      setNameFeedback({ type: 'error', message: err.message || 'Failed to update' });
+    } finally {
+      setNameSubmitting(false);
     }
-    setTimeout(() => setNameFeedback(''), 2000);
   };
 
   const handleChangePassword = async (e) => {
     e.preventDefault();
+    if (passwordSubmitting) return;
+    setPasswordFeedback(null);
     if (!newPassword || newPassword.length < 8) {
-      setPasswordFeedback('Password must be at least 8 characters.');
+      setPasswordFeedback({ type: 'error', message: 'Password must be at least 8 characters.' });
       return;
     }
     if (newPassword !== confirmPassword) {
-      setPasswordFeedback('Passwords do not match.');
+      setPasswordFeedback({ type: 'error', message: 'Passwords do not match.' });
       return;
     }
     setPasswordSubmitting(true);
-    setPasswordFeedback('');
     try {
       await updateProfile({ password: newPassword });
       setNewPassword('');
       setConfirmPassword('');
-      setPasswordFeedback('Password changed!');
+      setPasswordFeedback({ type: 'success', message: 'Password changed!' });
     } catch (err) {
-      setPasswordFeedback(err.message || 'Failed to change password');
+      setPasswordFeedback({ type: 'error', message: err.message || 'Failed to change password' });
     } finally {
       setPasswordSubmitting(false);
-      setTimeout(() => setPasswordFeedback(''), 3000);
     }
   };
 
   return (
     <div className="mx-auto max-w-lg space-y-6 p-4">
-      <h2 className="text-xl font-semibold">User Settings</h2>
+      <h1 className="text-xl font-semibold">User Settings</h1>
 
       <Card>
         <CardHeader>
-          <CardTitle>Account</CardTitle>
+          <CardTitle><h2>Account</h2></CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-            <span className="text-sm text-muted-foreground">Email</span>
-            <span className="text-sm break-all">{user?.email || ''}</span>
+          <div className="flex flex-col gap-1 text-sm sm:flex-row sm:items-start sm:justify-between sm:gap-3">
+            <span className="shrink-0 text-muted-foreground">Email</span>
+            <span className="min-w-0 wrap-anywhere sm:text-right">{user?.email || ''}</span>
           </div>
 
           <Separator />
@@ -154,10 +164,10 @@ export default function Settings() {
           <form className="space-y-3" onSubmit={handleSaveUsername}>
             <div className="space-y-1.5">
               <Label htmlFor="account-username">Username</Label>
-              <Input id="account-username" type="text" value={username} onChange={(e) => setUsername(e.target.value)} />
+              <Input id="account-username" type="text" value={username} disabled={usernameSubmitting} aria-describedby="username-feedback" onChange={(e) => { setUsername(e.target.value); setUsernameFeedback(null); }} />
             </div>
-            <Button type="submit">Save</Button>
-            {usernameFeedback && <p className="text-sm text-muted-foreground" role="status" aria-live="polite">{usernameFeedback}</p>}
+            <Button type="submit" disabled={usernameSubmitting} aria-label={usernameSubmitting ? 'Saving username' : 'Save username'}>{usernameSubmitting ? 'Saving...' : 'Save'}</Button>
+            <SettingsFeedback id="username-feedback" feedback={usernameFeedback} />
           </form>
 
           <Separator />
@@ -165,22 +175,22 @@ export default function Settings() {
           <form className="space-y-3" onSubmit={handleSaveName}>
             <div className="space-y-1.5">
               <Label htmlFor="account-name">Name</Label>
-              <Input id="account-name" type="text" value={name} onChange={(e) => setName(e.target.value)} />
+              <Input id="account-name" type="text" value={name} disabled={nameSubmitting} aria-describedby="name-feedback" onChange={(e) => { setName(e.target.value); setNameFeedback(null); }} />
             </div>
-            <Button type="submit">Save</Button>
-            {nameFeedback && <p className="text-sm text-green-600" role="status" aria-live="polite">{nameFeedback}</p>}
+            <Button type="submit" disabled={nameSubmitting} aria-label={nameSubmitting ? 'Saving name' : 'Save name'}>{nameSubmitting ? 'Saving...' : 'Save'}</Button>
+            <SettingsFeedback id="name-feedback" feedback={nameFeedback} />
           </form>
 
           <Separator />
 
-          <form className="space-y-3" onSubmit={handleChangePassword}>
+          <form className="space-y-3" onSubmit={handleChangePassword} aria-describedby="password-feedback">
             <div className="space-y-1.5">
               <Label htmlFor="new-password">New Password</Label>
               <PasswordField
                 id="new-password"
                 autoComplete="new-password"
                 value={newPassword}
-                onChange={(e) => setNewPassword(e.target.value)}
+                onChange={(e) => { setNewPassword(e.target.value); setPasswordFeedback(null); }}
                 disabled={passwordSubmitting}
               />
             </div>
@@ -190,7 +200,7 @@ export default function Settings() {
                 id="confirm-password"
                 autoComplete="new-password"
                 value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
+                onChange={(e) => { setConfirmPassword(e.target.value); setPasswordFeedback(null); }}
                 onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleChangePassword(e); } }}
                 disabled={passwordSubmitting}
               />
@@ -198,7 +208,7 @@ export default function Settings() {
             <Button type="submit" disabled={passwordSubmitting}>
               {passwordSubmitting ? 'Changing...' : 'Change Password'}
             </Button>
-            {passwordFeedback && <p className="text-sm text-muted-foreground" role="status" aria-live="polite">{passwordFeedback}</p>}
+            <SettingsFeedback id="password-feedback" feedback={passwordFeedback} />
           </form>
         </CardContent>
       </Card>
@@ -206,24 +216,24 @@ export default function Settings() {
       {userFields.length > 0 && (
         <Card>
           <CardHeader>
-            <CardTitle>Profile</CardTitle>
+            <CardTitle><h2>Profile</h2></CardTitle>
           </CardHeader>
           <CardContent>
-            <form className="space-y-4" onSubmit={handleSaveFields} noValidate>
+            <form className="space-y-4" onSubmit={handleSaveFields} aria-describedby="fields-feedback" noValidate>
               {userFields.map((f) => (
                 <CustomFieldInput
                   key={f.id}
                   field={f}
                   idPrefix="settings-field"
                   value={fieldValues[f.id]}
-                  onChange={(v) => setFieldValues((prev) => ({ ...prev, [f.id]: v }))}
+                  onChange={(v) => { setFieldValues((prev) => ({ ...prev, [f.id]: v })); setFieldsFeedback(null); }}
                   disabled={fieldsSaving}
                 />
               ))}
               <Button type="submit" disabled={fieldsSaving}>
                 {fieldsSaving ? 'Saving...' : 'Save'}
               </Button>
-              {fieldsFeedback && <p className="text-sm text-muted-foreground" role="status" aria-live="polite">{fieldsFeedback}</p>}
+              <SettingsFeedback id="fields-feedback" feedback={fieldsFeedback} />
             </form>
           </CardContent>
         </Card>
@@ -231,7 +241,7 @@ export default function Settings() {
 
       <Card>
         <CardHeader>
-          <CardTitle id="profile-heading">Learner Profile</CardTitle>
+          <CardTitle><h2 id="profile-heading">Learner Profile</h2></CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
           <p className="text-sm text-muted-foreground">Updated automatically by the AI as you complete activities.</p>
@@ -255,13 +265,22 @@ export default function Settings() {
   );
 }
 
+function SettingsFeedback({ id, feedback }) {
+  const color = feedback?.type === 'error' ? 'text-destructive' : 'text-success-foreground';
+  return (
+    <p id={id} className={feedback ? `text-sm ${color}` : 'sr-only'} role="status" aria-live="polite" aria-atomic="true">
+      {feedback?.message || ''}
+    </p>
+  );
+}
+
 function ProfileFeedbackDialog({ open, onOpenChange, onDone }) {
   const [text, setText] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
 
   const handleSubmit = async () => {
-    if (!text.trim() || submitting) return;
+    if (submitting || !text.trim()) return;
     setSubmitting(true);
     setError('');
     try {
@@ -279,8 +298,7 @@ function ProfileFeedbackDialog({ open, onOpenChange, onDone }) {
       setText('');
       if (onDone) onDone();
     } catch (e) {
-      console.error('[plato] Profile feedback failed:', e?.message || e);
-      setError('Your feedback could not be saved. Your draft is still here; try again.');
+      setError(e?.message || 'Could not update your profile. Please try again.');
     } finally {
       setSubmitting(false);
     }
@@ -295,7 +313,6 @@ function ProfileFeedbackDialog({ open, onOpenChange, onDone }) {
             Share anything that seems inaccurate or missing -- your device, experience level, learning style, or anything else.
           </DialogDescription>
         </DialogHeader>
-        {error && <p className="text-sm text-destructive" role="alert">{error}</p>}
         <div className="space-y-2">
           <Label htmlFor="profile-feedback-input" className="sr-only">Profile feedback</Label>
           <Textarea
@@ -303,13 +320,18 @@ function ProfileFeedbackDialog({ open, onOpenChange, onDone }) {
             rows={4}
             placeholder="e.g. I'm a complete beginner. I use a Chromebook and don't have admin access."
             value={text}
-            onChange={(e) => setText(e.target.value)}
+            disabled={submitting}
+            aria-describedby="profile-feedback-error"
+            onChange={(e) => { setText(e.target.value); setError(''); }}
             onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing && (e.metaKey || e.ctrlKey)) { e.preventDefault(); handleSubmit(); } }}
           />
+          <p id="profile-feedback-error" className={error ? 'text-sm text-destructive' : 'sr-only'} role="alert">
+            {error}
+          </p>
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button onClick={handleSubmit} disabled={submitting}>
+          <Button onClick={handleSubmit} disabled={submitting || !text.trim()}>
             {submitting ? 'Updating...' : 'Submit'}
           </Button>
         </DialogFooter>

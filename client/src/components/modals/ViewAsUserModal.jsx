@@ -112,7 +112,7 @@ export default function ViewAsUserModal({ open, onOpenChange, onStarted }) {
                         {u.name && <span className="text-xs text-muted-foreground truncate block">{u.email}</span>}
                       </span>
                       {isAdmin && (
-                        <span className="text-[10px] uppercase tracking-wide font-semibold px-1.5 py-0.5 rounded bg-primary/10 text-primary shrink-0" aria-hidden="true">
+                        <span className="text-[10px] uppercase tracking-wide font-semibold px-1.5 py-0.5 rounded bg-primary/10 text-primary-text shrink-0" aria-hidden="true">
                           Admin
                         </span>
                       )}

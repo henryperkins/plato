@@ -25,6 +25,17 @@
     --color-input: var(--input);
     --color-border: var(--border);
     --color-destructive: var(--destructive);
+    --color-primary-text: var(--primary-text);
+    --color-link: var(--link);
+    --color-success: var(--success);
+    --color-success-foreground: var(--success-foreground);
+    --color-success-border: var(--success-border);
+    --color-warning: var(--warning);
+    --color-warning-foreground: var(--warning-foreground);
+    --color-warning-border: var(--warning-border);
+    --color-danger: var(--danger);
+    --color-danger-foreground: var(--danger-foreground);
+    --color-danger-border: var(--danger-border);
     --color-accent-foreground: var(--accent-foreground);
     --color-accent: var(--accent);
     --color-muted-foreground: var(--muted-foreground);
@@ -64,7 +75,18 @@
     --muted-foreground: oklch(0.45 0 0);
     --accent: oklch(0.97 0 0);
     --accent-foreground: oklch(0.205 0 0);
-    --destructive: oklch(0.577 0.245 27.325);
+    --destructive: oklch(0.505 0.213 27.518);
+    --primary-text: var(--primary);
+    --link: var(--primary-text);
+    --success: oklch(0.982 0.018 155.826);
+    --success-foreground: oklch(0.393 0.095 152.535);
+    --success-border: oklch(0.871 0.15 154.449);
+    --warning: oklch(0.987 0.026 102.212);
+    --warning-foreground: oklch(0.421 0.095 57.708);
+    --warning-border: oklch(0.905 0.182 98.111);
+    --danger: oklch(0.971 0.013 17.38);
+    --danger-foreground: oklch(0.396 0.141 25.723);
+    --danger-border: oklch(0.808 0.114 19.571);
     --border: oklch(0.905 0 0);
     --input: oklch(0.905 0 0);
     --ring: oklch(0.336 0.182 285);
@@ -100,6 +122,17 @@
     --accent: oklch(0.269 0 0);
     --accent-foreground: oklch(0.985 0 0);
     --destructive: oklch(0.704 0.191 22.216);
+    --primary-text: oklch(0.78 0.12 285);
+    --link: var(--primary-text);
+    --success: oklch(0.266 0.065 152.934);
+    --success-foreground: oklch(0.925 0.084 155.995);
+    --success-border: oklch(0.527 0.154 150.069);
+    --warning: oklch(0.286 0.066 53.813);
+    --warning-foreground: oklch(0.945 0.129 101.54);
+    --warning-border: oklch(0.554 0.135 66.442);
+    --danger: oklch(0.258 0.092 26.042);
+    --danger-foreground: oklch(0.885 0.062 18.334);
+    --danger-border: oklch(0.505 0.213 27.518);
     --border: oklch(1 0 0 / 10%);
     --input: oklch(1 0 0 / 15%);
     --ring: oklch(0.556 0.2 285);
@@ -143,6 +176,35 @@
   outline-offset: 2px;
 }
 
+/* Resolve roles at the branding boundary so nested classroom overrides work. */
+.classroom-theme {
+  --primary-text: var(--classroom-primary-text-light, var(--primary));
+  --link: var(--classroom-link-light, var(--primary-text));
+  --ring: var(--classroom-ring-light, var(--primary));
+}
+
+.dark.classroom-theme,
+.dark .classroom-theme {
+  --primary-text: var(--classroom-primary-text-dark, oklch(0.78 0.12 285));
+  --link: var(--classroom-link-dark, var(--primary-text));
+  /* !important so the inline (light) `--ring` from buildThemeVars, kept for
+     consumers without `.classroom-theme`, does not override the dark ring. */
+  --ring: var(--classroom-ring-dark, var(--primary-text)) !important;
+}
+
+/* Keep compact desktop controls and expand their actual touch hit area. */
+@media (max-width: 639px), (any-pointer: coarse) {
+  [data-slot="button"],
+  .touch-target {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  .password-field input {
+    min-height: 44px;
+  }
+}
+
 /* Keep desktop density; give touch users real, nonoverlapping hit areas. */
 @media (pointer: coarse) {
   button, select, [role="menuitem"] {
@@ -167,30 +229,118 @@
   }
 }
 
+/* Coach formatting is scoped to the reading surface, not interface lists. */
+.coach-copy {
+  overflow-wrap: anywhere;
+}
+
+.coach-copy ul,
+.coach-copy ol {
+  margin-block: 0.75rem;
+  padding-inline-start: 1.5rem;
+}
+
+.coach-copy ul {
+  list-style-type: disc;
+}
+
+.coach-copy ol {
+  list-style-type: decimal;
+}
+
+.coach-copy li + li {
+  margin-block-start: 0.25rem;
+}
+
+.coach-copy a {
+  color: var(--link);
+  text-decoration: underline;
+  text-underline-offset: 0.15em;
+}
+
+.coach-copy a:hover {
+  text-decoration-thickness: 2px;
+}
+
+:root {
+  --motion-arrive: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Progress changes explain state without relaying out the surrounding text. */
+.progress-fill {
+  width: 100%;
+  transform-origin: left center;
+  transition: transform 280ms var(--motion-arrive), background-color 150ms ease-out;
+}
+
+.admin-drawer {
+  transform: translateX(0);
+  transition: transform 220ms var(--motion-arrive);
+}
+
+.admin-drawer[data-starting-style],
+.admin-drawer[data-ending-style] {
+  transform: translateX(-100%);
+}
+
+.admin-drawer[data-ending-style] {
+  transition-duration: 140ms;
+}
+
+.admin-drawer-backdrop {
+  opacity: 1;
+  transition: opacity 160ms ease-out;
+}
+
+.admin-drawer-backdrop[data-starting-style],
+.admin-drawer-backdrop[data-ending-style] {
+  opacity: 0;
+}
+
+/* Keep state/color feedback while replacing travel, zoom, and rotation. */
 @media (prefers-reduced-motion: reduce) {
-  .animate-in, .animate-out, .animate-spin {
-    animation: none;
+  .progress-fill {
+    transition-property: background-color;
+    transition-duration: 150ms;
   }
-  [data-slot="button"], [data-slot="dialog-content"], [data-slot="dialog-overlay"],
-  [data-slot="alert-dialog-content"], [data-slot="alert-dialog-overlay"] {
-    animation: none;
-    transition: none;
+
+  .admin-drawer,
+  .admin-drawer[data-starting-style],
+  .admin-drawer[data-ending-style] {
+    transform: none;
+    transition: opacity 100ms ease-out;
+  }
+
+  .admin-drawer[data-starting-style],
+  .admin-drawer[data-ending-style] {
+    opacity: 0;
+  }
+
+  [data-slot="dialog-content"],
+  [data-slot="alert-dialog-content"],
+  [data-slot="dropdown-menu-content"],
+  [data-slot="dropdown-menu-sub-content"] {
+    --tw-enter-scale: 1;
+    --tw-exit-scale: 1;
+    --tw-enter-translate-x: 0;
+    --tw-enter-translate-y: 0;
+    --tw-exit-translate-x: 0;
+    --tw-exit-translate-y: 0;
+  }
+
+  .group\/button:active {
+    translate: none;
+  }
+
+  /* Do not freeze spinners entirely: a static loader reads as a hang.
+     Replace rotation with a gentle opacity pulse. */
+  .animate-spin {
+    animation: reduced-motion-pulse 2s ease-in-out infinite;
   }
 }
 
-/* Confetti animation */
-.confetti-piece {
-  position: fixed;
-  width: 8px;
-  height: 8px;
-  border-radius: 2px;
-  pointer-events: none;
-  z-index: 9999;
-  animation: confetti-fall var(--d, 0.8s) cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards;
-}
-
-@keyframes confetti-fall {
-  0% { transform: translate(0, 0) rotate(0deg); opacity: 1; }
-  100% { transform: translate(var(--x, 0), var(--y, -200px)) rotate(var(--r, 360deg)); opacity: 0; }
+@keyframes reduced-motion-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
 }
 

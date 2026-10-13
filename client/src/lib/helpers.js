@@ -35,14 +35,16 @@ export function renderMd(text) {
   escaped = escaped.replace(/^### (.+)$/gm, '<strong style="font-size:0.85rem;">$1</strong>');
   escaped = escaped.replace(/^## (.+)$/gm, '<strong style="font-size:0.9rem;">$1</strong>');
   escaped = escaped.replace(/^# (.+)$/gm, '<strong style="font-size:1rem;">$1</strong>');
+  // Convert each raw list block once so ordered lists cannot re-wrap the
+  // <li> elements already generated for an unordered list.
+  const renderList = (block, tag, marker) => {
+    const items = block.trimEnd().split('\n').map(line => `<li>${line.replace(marker, '')}</li>`).join('');
+    return `<${tag}>${items}</${tag}>${block.endsWith('\n') ? '\n' : ''}`;
+  };
+  escaped = escaped.replace(/(?:^[-*] .+(?:\n|$))+/gm, block => renderList(block, 'ul', /^[-*] /));
+  escaped = escaped.replace(/(?:^\d+[.)][ \t]+.+(?:\n|$))+/gm, block => renderList(block, 'ol', /^\d+[.)][ \t]+/));
   escaped = escaped.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
   escaped = escaped.replace(/\*(.+?)\*/g, '<em>$1</em>');
-  escaped = escaped.replace(/^[-*] (.+)/gm, '<li>$1</li>');
-  escaped = escaped.replace(/(<li>.*<\/li>\n?)+/g, (match) => `<ul>${match}</ul>`);
-  escaped = escaped.replace(/^\d+[.)]\s+(.+)/gm, '<li>$1</li>');
-  escaped = escaped.replace(/(<li>.*<\/li>\n?)+/g, (match) =>
-    match.includes('<ul>') ? match : `<ol>${match}</ol>`
-  );
   escaped = linkify(escaped);
   // Convert markdown tables to HTML tables
   escaped = escaped.replace(/((?:^\|.+\|$\n?)+)/gm, (block) => {

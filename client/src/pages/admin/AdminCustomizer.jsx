@@ -7,13 +7,13 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 
-import { contrastText } from '../../lib/branding.js';
 import { renderMd } from '../../lib/helpers.js';
 import { converseStream, extractKBMarkdown } from '../../../js/orchestrator.js';
 import { parseResponse, cleanStream, buildConversationText } from '../../lib/lessonCreationEngine.js';
 import { useStreamedText } from '../../hooks/useStreamedText.js';
 import { useTitleNotification } from '../../hooks/useTitleNotification.js';
 import { MSG_TYPES } from '../../lib/constants.js';
+import { buildThemeVars, contrastText } from '../../lib/branding.js';
 
 import ChatArea from '../../components/chat/ChatArea.jsx';
 import ComposeBar from '../../components/chat/ComposeBar.jsx';
@@ -156,17 +156,17 @@ export default function AdminCustomizer() {
                   </div>
                 </div>
               </div>
-              <div className="rounded-lg overflow-hidden border border-border" aria-label="Theme preview">
-                <div className="px-4 py-2 flex items-center gap-2 text-sm" style={{ backgroundColor: primary, color: contrastText(primary) }}>
+              <div className="classroom-theme rounded-lg overflow-hidden border border-border" aria-label="Theme preview" style={buildThemeVars({ primary, accent })}>
+                <div className="px-4 py-2 flex flex-wrap items-center gap-2 text-sm" style={{ backgroundColor: primary, color: contrastText(primary) }}>
                   <span className="font-semibold">Header Preview</span>
-                  <span className="ml-auto opacity-80">Nav Item</span>
+                  <span className="ml-auto">Nav Item</span>
                 </div>
                 <div className="px-4 py-3 bg-background text-sm space-y-2">
-                  <p>Body text on white background.</p>
-                  <a href="#" onClick={e => e.preventDefault()} style={{ color: accent }} className="underline">Accent link</a>
+                  <p>Body text on the page background.</p>
+                  <a href="#" onClick={e => e.preventDefault()} className="text-link underline">Accent link</a>
                   <div className="flex gap-2 mt-2">
                     <span className="px-2 py-0.5 rounded text-xs font-medium" style={{ backgroundColor: primary, color: contrastText(primary) }}>Badge</span>
-                    <span className="px-2 py-0.5 rounded text-xs font-medium border" style={{ borderColor: accent, color: accent }}>Outline</span>
+                    <span className="px-2 py-0.5 rounded text-xs font-medium border border-link text-link">Outline</span>
                   </div>
                 </div>
               </div>
@@ -477,9 +477,9 @@ function KBEditor({ initialContent, onSave, onCancel, initialConversation, initi
             </div>
             <div className="h-1.5 rounded-full bg-muted overflow-hidden">
               <div
-                className="h-full rounded-full transition-all duration-500"
+                className="progress-fill h-full rounded-full"
                 style={{
-                  width: `${readiness * 10}%`,
+                  transform: `scaleX(${readiness / 10})`,
                   backgroundColor: `hsl(${readiness * 12}, 80%, 45%)`,
                 }}
               />

@@ -292,11 +292,10 @@ export default function LessonsList() {
           role="list"
           aria-label="Lessons"
         >
-          {visibleLessons.map((c, i) => (
+          {visibleLessons.map(c => (
             <li
               key={c.lessonId}
-              className="animate-in fade-in slide-in-from-bottom-2 fill-mode-both list-none"
-              style={{ animationDelay: `${i * 30}ms` }}
+              className="list-none"
             >
               {/* Title-first layout: lesson name leads, description supports,
                   and metadata (course / expected time / status) collapses to
@@ -403,7 +402,7 @@ function LessonCard({ lesson, progress, timeStats, onOpen, onShowOverview }) {
       >
         <div className="flex items-start gap-3">
           <div className="min-w-0 flex-1 space-y-1.5">
-            <span className="text-base font-semibold leading-snug transition-colors group-hover:text-primary block">
+            <span className="text-base font-semibold leading-snug transition-colors group-hover:text-primary-text block">
               {lesson.name}
             </span>
             {lesson.description && (
@@ -577,8 +576,8 @@ function LessonDetailDialog({ lesson, progress, timeStats, open, onOpenChange })
                 className="h-2 rounded-full bg-muted overflow-hidden"
               >
                 <div
-                  className="h-full rounded-full bg-primary transition-all"
-                  style={{ width: `${pct}%` }}
+                  className="progress-fill h-full rounded-full bg-primary"
+                  style={{ transform: `scaleX(${pct / 100})` }}
                 />
               </div>
             </div>

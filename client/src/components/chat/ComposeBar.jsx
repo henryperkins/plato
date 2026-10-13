@@ -83,6 +83,30 @@ export default function ComposeBar({
     handleResize({ target: inputRef.current });
   }, [text, handleResize]);
 
+  // Width, font loading, zoom, and root text-size changes can alter line wrapping.
+  useEffect(() => {
+    const input = inputRef.current;
+    if (!input) return;
+    let frame;
+    const resize = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => handleResize({ target: input }));
+    };
+    const observer = new ResizeObserver(resize);
+    observer.observe(input.parentElement);
+    const rootObserver = new MutationObserver(resize);
+    rootObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['style', 'class'] });
+    window.addEventListener('resize', resize);
+    document.fonts?.addEventListener('loadingdone', resize);
+    return () => {
+      cancelAnimationFrame(frame);
+      observer.disconnect();
+      rootObserver.disconnect();
+      window.removeEventListener('resize', resize);
+      document.fonts?.removeEventListener('loadingdone', resize);
+    };
+  }, [handleResize]);
+
   const send = () => {
     const val = text.trim();
     if ((!val && images.length === 0 && links.length === 0) || disabled || loadingImages || fetchingLink) return;
@@ -306,7 +330,7 @@ export default function ComposeBar({
         <textarea
           ref={inputRef}
           id={inputId}
-          className="w-full resize-none bg-transparent px-3 py-2 text-base md:text-sm outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50"
+          className="w-full min-h-[calc(1lh+1rem)] resize-none rounded-t-xl bg-transparent px-3 py-2 text-base md:text-sm focus-visible:outline-offset-[-3px] placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50"
           rows={1}
           placeholder={placeholder}
           value={text}
@@ -336,7 +360,7 @@ export default function ComposeBar({
                 disabled={fetchingLink}
                 aria-describedby={linkError ? `${linkInputId}-err` : undefined}
                 aria-invalid={linkError ? true : undefined}
-                className="min-w-0 flex-1 basis-full sm:basis-0 rounded-md border border-input bg-background px-2 py-1 text-base md:text-sm outline-none focus:ring-1 focus:ring-ring disabled:opacity-50"
+                className="min-w-0 basis-full sm:basis-0 flex-1 rounded-md border border-input bg-background px-2 py-2 text-base md:text-sm focus:ring-1 focus:ring-ring disabled:opacity-50"
               />
               <Button variant="default" size="sm" onClick={addLink} disabled={!linkValue.trim() || fetchingLink}>
                 {fetchingLink ? 'Adding…' : 'Add'}

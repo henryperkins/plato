@@ -5,6 +5,12 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { MINS_PER_EXCHANGE } from '@/lib/constants.js';
 
+const STATUS_CARD_CLASSES = {
+  success: 'bg-success text-success-foreground ring-2 ring-success-border [--muted-foreground:var(--success-foreground)]',
+  warning: 'bg-warning text-warning-foreground ring-2 ring-warning-border [--muted-foreground:var(--warning-foreground)]',
+  danger: 'bg-danger text-danger-foreground ring-2 ring-danger-border [--muted-foreground:var(--danger-foreground)]',
+};
+
 function formatRelativeTime(iso) {
   if (!iso) return null;
   const then = Date.parse(iso);
@@ -36,18 +42,18 @@ function EngagementWidget({ label, valuePct, count, total, targetPct, targetCopy
   const cardClass = noData
     ? ''
     : onTarget
-      ? 'border-green-300 bg-green-50 ring-2 ring-green-200'
-      : 'border-red-300 bg-red-50 ring-2 ring-red-200';
+      ? STATUS_CARD_CLASSES.success
+      : STATUS_CARD_CLASSES.danger;
   const badgeClass = noData
     ? 'bg-muted text-muted-foreground'
     : onTarget
-      ? 'bg-green-200 text-green-900'
-      : 'bg-red-200 text-red-900';
+      ? 'bg-success-foreground text-success'
+      : 'bg-danger-foreground text-danger';
   const badgeText = noData ? '—' : onTarget ? 'On target' : 'Below target';
   return (
     <Card className={cardClass}>
       <CardContent>
-        <div className="flex items-baseline justify-between gap-2">
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
           <div>
             <div className="text-sm font-medium">{label}</div>
             <div className="text-4xl font-bold mt-1">{noData ? '—' : `${valuePct}%`}</div>
@@ -132,14 +138,14 @@ function PacingSection({ stats }) {
   let signalDetail = null;
   if (rate !== null) {
     if (rate >= 75) {
-      cardClasses = 'border-green-300 bg-green-50 ring-2 ring-green-200';
+      cardClasses = STATUS_CARD_CLASSES.success;
       signal = 'Lesson pacing is healthy';
     } else if (rate >= 50) {
-      cardClasses = 'border-yellow-300 bg-yellow-50 ring-2 ring-yellow-200';
+      cardClasses = STATUS_CARD_CLASSES.warning;
       signal = 'Some lessons are running long — review objectives or coach pacing';
       signalDetail = 'Common causes: too many learning objectives, an exemplar that sets a very high bar, or a lesson topic that requires more scaffolding exchanges. Try simplifying objectives to 2–3 focused outcomes or tightening the exemplar scope.';
     } else {
-      cardClasses = 'border-red-300 bg-red-50 ring-2 ring-red-200';
+      cardClasses = STATUS_CARD_CLASSES.danger;
       signal = 'Most lessons exceed the target — simplify objectives or raise the target';
       signalDetail = 'Most learners are taking significantly more exchanges than the target. Review your lessons for scope creep: each lesson should target one narrow skill. Consider splitting broad lessons into two focused ones.';
     }
@@ -151,12 +157,12 @@ function PacingSection({ stats }) {
 
       <Card className={`mb-4 ${cardClasses}`}>
         <CardContent>
-          <div className="flex items-baseline justify-between">
+          <div className="flex flex-wrap items-baseline justify-between gap-3">
             <div>
               <div className="text-sm font-medium">On-Target Rate</div>
               <div className="text-4xl font-bold mt-1">{rate !== null ? `${rate}%` : '—'}</div>
             </div>
-            <div className="text-right text-xs text-muted-foreground">
+            <div className="text-left sm:text-right text-xs text-muted-foreground">
               <div>Target: {exchangeTarget} exchanges (~20 min)</div>
               <div>Extended threshold: {extendedThreshold}+ exchanges</div>
             </div>
@@ -181,7 +187,7 @@ function PacingSection({ stats }) {
       </Card>
 
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-        <Card className={durationWarning ? 'border-yellow-300 bg-yellow-50 ring-2 ring-yellow-200' : ''}>
+        <Card className={durationWarning ? STATUS_CARD_CLASSES.warning : ''}>
           <CardContent>
             <div className="text-2xl font-bold">{estimatedDuration != null ? `${estimatedDuration} min` : '—'}</div>
             <div className="text-sm text-muted-foreground">Est. active time</div>
@@ -193,7 +199,7 @@ function PacingSection({ stats }) {
             <div className="text-sm text-muted-foreground">Avg exchanges (on target)</div>
           </CardContent>
         </Card>
-        <Card className={overTargetWarning ? 'border-yellow-300 bg-yellow-50 ring-2 ring-yellow-200' : ''}>
+        <Card className={overTargetWarning ? STATUS_CARD_CLASSES.warning : ''}>
           <CardContent>
             <div className="text-2xl font-bold">{avgExchangesOverTarget ?? '—'}</div>
             <div
@@ -203,14 +209,14 @@ function PacingSection({ stats }) {
               Avg exchanges (over target)
             </div>
             {overTargetWarning && (
-              <div className="text-xs mt-1 text-yellow-800">
+              <div className="text-xs mt-1 text-warning-foreground">
                 Over-target lessons averaging {avgExchangesOverTarget} exchanges — review lesson objectives and exemplar scope in{' '}
                 <Link to="/plato/lessons" className="underline">Lessons</Link>.
               </div>
             )}
           </CardContent>
         </Card>
-        <Card className={overTargetFractionHigh ? 'border-yellow-300 bg-yellow-50 ring-2 ring-yellow-200' : ''}>
+        <Card className={overTargetFractionHigh ? STATUS_CARD_CLASSES.warning : ''}>
           <CardContent>
             <div className="text-2xl font-bold">{overTarget}</div>
             <div className="text-sm text-muted-foreground">Went over target</div>
@@ -220,7 +226,7 @@ function PacingSection({ stats }) {
               </div>
             )}
             {overTargetFractionHigh && (
-              <div className="text-xs mt-1 text-yellow-800">
+              <div className="text-xs mt-1 text-warning-foreground">
                 More than 1 in 4 completions ran long — consider reviewing lesson scope.
               </div>
             )}
@@ -298,7 +304,7 @@ export default function AdminHome() {
 
   return (
     <div>
-      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 mb-1">
+      <div className="flex flex-wrap items-start justify-between gap-3 mb-1">
         <h1 className="text-2xl font-bold">Dashboard</h1>
         <div className="flex flex-wrap items-center gap-3">
           {lastUpdated && (
@@ -322,7 +328,7 @@ export default function AdminHome() {
 
       {!hasKB && (
         <Link to="/plato/setup-kb" className="block no-underline mb-6">
-          <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 hover:bg-amber-100 transition-colors" role="alert">
+          <div className="rounded-lg border border-warning-border bg-warning px-4 py-3 text-sm text-warning-foreground hover:underline" role="alert">
             <strong>Set up your knowledge base</strong> — tell plato about your program so the AI can give learners informed answers.{' '}
             <span className="underline">Get started</span>
           </div>

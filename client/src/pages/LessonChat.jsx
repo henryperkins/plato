@@ -1,11 +1,11 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { ArrowLeft, RotateCcw } from 'lucide-react';
 import { useApp } from '../contexts/AppContext.jsx';
 import { useAuth } from '../contexts/AuthContext.jsx';
 import { useStreamedText } from '../hooks/useStreamedText.js';
 import { useTitleNotification } from '../hooks/useTitleNotification.js';
 import { LESSON_PHASES, MSG_TYPES } from '../lib/constants.js';
-import { launchConfetti } from '../lib/confetti.js';
 import {
   getLessonKB, deleteLessonProgress,
   getUserLessonMarkdown, deleteUserLesson,
@@ -51,6 +51,7 @@ export default function LessonChat() {
   const [phase, setPhase] = useState(null);
   const [messages, setMessages] = useState([]);
   const [lessonKB, setLessonKB] = useState(null);
+  const [celebratedLessonId, setCelebratedLessonId] = useState(null);
   const [loading, setLoading] = useState('');
   const [loadingStep, setLoadingStep] = useState('initializing');
   const [loadingEnrichments, setLoadingEnrichments] = useState([]);
@@ -71,39 +72,34 @@ export default function LessonChat() {
   const [confirmModal, setConfirmModal] = useState(null);
   const [showObjectives, setShowObjectives] = useState(false);
   const objectivesTitleRef = useRef(null);
-  const [headerPinned, setHeaderPinned] = useState(false);
-  const headerRef = useRef(null);
   const [composePinned, setComposePinned] = useState(true);
   const composeAnchorRef = useRef(null);
   const [composeText, setComposeText] = useState('');
   const [composeImages, setComposeImages] = useState([]);
   const [composeLinks, setComposeLinks] = useState([]);
 
-  // Pin header when its top edge reaches the viewport top
+  // Keep the composer visible while its inline position is below the viewport.
   useEffect(() => {
-    const el = headerRef.current;
-    if (!el) return;
+    const anchor = composeAnchorRef.current;
+    if (!anchor) return;
     const check = () => {
-      const rect = el.getBoundingClientRect();
-      setHeaderPinned(rect.top < 0);
+      setComposePinned(anchor.getBoundingClientRect().bottom > window.innerHeight);
     };
-    const checkCompose = () => {
-      const anchor = composeAnchorRef.current;
-      if (anchor) {
-        const rect = anchor.getBoundingClientRect();
-        // Unpin only when the bottom of the inline compose is fully visible
-        setComposePinned(rect.bottom > window.innerHeight);
-      }
+    const observer = new ResizeObserver(check);
+    observer.observe(anchor);
+    window.addEventListener('scroll', check, true);
+    window.addEventListener('resize', check);
+    check();
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('scroll', check, true);
+      window.removeEventListener('resize', check);
     };
-    const checkAll = () => { check(); checkCompose(); };
-    window.addEventListener('scroll', checkAll, true);
-    checkAll();
-    return () => window.removeEventListener('scroll', checkAll, true);
-  }, []);
+  }, [phase]);
 
   useEffect(() => {
     if (displayText === null && pendingAfterStreamRef.current) {
-      const { msgs, p, confetti } = pendingAfterStreamRef.current;
+      const { msgs, p, achieved } = pendingAfterStreamRef.current;
       pendingAfterStreamRef.current = null;
       if (msgs) {
         setMessages(prev => [...prev, ...msgs]);
@@ -134,8 +130,8 @@ export default function LessonChat() {
         }
       }
       if (p) setPhase(p);
-      if (confetti) {
-        launchConfetti();
+      if (achieved) {
+        setCelebratedLessonId(lessonGroupId);
         // Signal lesson list to refresh completion state
         window.dispatchEvent(new CustomEvent('plato:lesson-completed', {
           detail: { lessonId: lessonGroupId }
@@ -171,6 +167,7 @@ export default function LessonChat() {
     const lesson = lessonRef.current;
     if (!lesson) return;
     let cancelled = false;
+    setCelebratedLessonId(null);
 
     (async () => {
       const existing = await engine.resumeLesson(lessonGroupId);
@@ -244,7 +241,7 @@ export default function LessonChat() {
         (partial) => setStreamingText(partial)
       );
       const assistantMsg = result.messages.find(m => m.role === 'assistant');
-      pendingAfterStreamRef.current = { msgs: assistantMsg ? [assistantMsg] : [], p: result.phase, confetti: result.achieved };
+      pendingAfterStreamRef.current = { msgs: assistantMsg ? [assistantMsg] : [], p: result.phase, achieved: result.achieved };
       setStreamingText(null);
 
       const freshKB = await getLessonKB(lessonGroupId);
@@ -384,66 +381,25 @@ export default function LessonChat() {
 
   return (
     <div className="flex flex-col min-h-[calc(100vh-theme(spacing.20))]">
-      {/* Fixed header clone — appears when inline header scrolls out of view */}
-      {headerPinned && (
-        <div id="lesson-header-pinned" className="fixed top-0 left-0 right-0 z-50 border-b border-border bg-background px-4 py-2 shadow-md">
-          <div className="mx-auto max-w-5xl flex items-center gap-2">
-            <Button variant="ghost" size="icon-sm" aria-label="Back to lessons" onClick={() => navigate('/lessons')}>
-              &larr;
-            </Button>
-            <div className="flex-1 min-w-0">
-              <div className="flex flex-col items-start gap-1 sm:flex-row sm:items-center sm:justify-between">
-                <h1 className="max-w-full text-sm font-semibold truncate">{lesson.name}</h1>
-                <button
-                  className="text-xs text-primary hover:underline shrink-0 cursor-pointer"
-                  onClick={() => setShowObjectives(true)}
-                  aria-expanded={showObjectives}
-                  aria-controls="lesson-objectives-dialog"
-                >
-                  Lesson Overview ({lesson.learningObjectives.length} Objectives)
-                </button>
-              </div>
-              <ProgressBar lessonKB={lessonKB} />
-            </div>
-            {isCustomLesson && (
-              <Button variant="ghost" size="icon-sm" onClick={handleExport} title="Export lesson markdown">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-              </Button>
-            )}
-            {phase && (
-              <Button variant="ghost" size="icon-sm" onClick={handleReset} title="Reset lesson">
-                &#8635;
-              </Button>
-            )}
-            {isCustomLesson && (
-              <Button variant="ghost" size="icon-sm" onClick={handleDelete} title="Delete lesson">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-              </Button>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Inline header — observed for scroll position */}
-      <div ref={headerRef} id="lesson-header" inert={headerPinned || undefined} aria-hidden={headerPinned || undefined} className="border-b border-border bg-background px-4 py-2">
-        <div className="mx-auto max-w-5xl flex items-center gap-2">
+      {/* One header stays visible and accessible throughout the conversation. */}
+      <div id="lesson-header" className="sticky top-0 z-40 border-b border-border bg-background px-4 py-2">
+        <div className="mx-auto max-w-5xl flex items-start gap-2">
           <Button variant="ghost" size="icon-sm" aria-label="Back to lessons" onClick={() => navigate('/lessons')}>
-            &larr;
+            <ArrowLeft aria-hidden="true" />
           </Button>
           <div className="flex-1 min-w-0">
-            <div className="flex flex-col items-start gap-1 sm:flex-row sm:items-center sm:justify-between">
-              <h1 className="max-w-full text-sm font-semibold truncate">{lesson.name}</h1>
+            <div className="flex flex-col items-start gap-1 sm:flex-row sm:items-center sm:justify-between sm:gap-2">
+              <h1 className="text-sm font-semibold break-words min-w-0">{lesson.name}</h1>
               <button
-                className="text-xs text-primary hover:underline shrink-0 cursor-pointer"
+                className="touch-target rounded-sm text-left text-xs text-primary-text hover:underline cursor-pointer sm:shrink-0"
                 onClick={() => setShowObjectives(true)}
-                aria-label={`View ${lesson.learningObjectives.length} objectives`}
                 aria-expanded={showObjectives}
                 aria-controls="lesson-objectives-dialog"
               >
                 Lesson Overview ({lesson.learningObjectives.length} Objectives)
               </button>
             </div>
-            <ProgressBar lessonKB={lessonKB} />
+            <ProgressBar lessonKB={lessonKB} celebrate={celebratedLessonId === lessonGroupId} />
           </div>
           {isCustomLesson && (
             <Button variant="ghost" size="icon-sm" onClick={handleExport} aria-label="Export lesson" title="Export lesson markdown">
@@ -452,7 +408,7 @@ export default function LessonChat() {
           )}
           {phase && (
             <Button variant="ghost" size="icon-sm" onClick={handleReset} aria-label="Reset lesson" title="Reset lesson">
-              &#8635;
+              <RotateCcw aria-hidden="true" />
             </Button>
           )}
           {isCustomLesson && (

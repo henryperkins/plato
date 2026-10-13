@@ -1,9 +1,9 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext.jsx';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
-import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/dialog';
+import { Dialog as DialogPrimitive } from '@base-ui/react/dialog';
 
 const NAV_LINKS = [
   { to: '/plato', label: 'Home', end: true },
@@ -21,10 +21,10 @@ function NavItems({ onClick }) {
       end={end}
       onClick={onClick}
       className={({ isActive }) =>
-        `block px-3 py-2 rounded-md text-sm transition-colors whitespace-nowrap ${
+        `touch-target flex items-center px-3 py-2 rounded-md text-sm transition-colors whitespace-nowrap ${
           isActive
-            ? 'bg-primary-foreground/20 font-medium'
-            : 'hover:bg-primary-foreground/10'
+            ? 'bg-sidebar-foreground/20 font-medium'
+            : 'hover:bg-sidebar-foreground/10'
         }`
       }
     >
@@ -39,22 +39,20 @@ export default function AdminLayout() {
   const location = useLocation();
   const [version, setVersion] = useState(null);
   const [menuOpen, setMenuOpen] = useState(false);
-  const menuButtonRef = useRef(null);
 
   useEffect(() => {
     fetch('/v1/version').then(r => r.json()).then(d => setVersion(d.version)).catch(() => {});
   }, []);
 
-  // Release modal focus and scroll locking when the desktop sidebar takes over.
-  useEffect(() => {
-    const breakpoint = window.matchMedia('(min-width: 768px)');
-    const closeOnDesktop = (event) => { if (event.matches) setMenuOpen(false); };
-    breakpoint.addEventListener('change', closeOnDesktop);
-    return () => breakpoint.removeEventListener('change', closeOnDesktop);
-  }, []);
-
   // Close menu on route change
   useEffect(() => { setMenuOpen(false); }, [location.pathname]);
+
+  useEffect(() => {
+    const desktop = window.matchMedia('(min-width: 768px)');
+    const closeOnDesktop = event => { if (event.matches) setMenuOpen(false); };
+    desktop.addEventListener('change', closeOnDesktop);
+    return () => desktop.removeEventListener('change', closeOnDesktop);
+  }, []);
 
   const handleSignOut = async () => {
     setMenuOpen(false);
@@ -63,16 +61,15 @@ export default function AdminLayout() {
   };
 
   return (
+    <DialogPrimitive.Root open={menuOpen} onOpenChange={setMenuOpen}>
     <div className="flex flex-col md:flex-row min-h-screen">
       {/* Mobile: top bar with hamburger */}
-      <header className="md:hidden bg-primary text-primary-foreground flex items-center justify-between px-4 py-3">
-        <a href="/plato" onClick={e => { e.preventDefault(); navigate('/plato'); }}>
+      <header className="md:hidden bg-sidebar text-sidebar-foreground flex items-center justify-between px-4 py-3" style={{ '--ring': 'var(--sidebar-foreground)' }}>
+        <a href="/plato" onClick={e => { e.preventDefault(); navigate('/plato'); }} className="touch-target flex items-center rounded-sm">
           <img src="/assets/logo-white.svg" alt="plato" className="h-6 w-auto" />
         </a>
-        <button
-          ref={menuButtonRef}
-          onClick={() => setMenuOpen(!menuOpen)}
-          className="bg-transparent border-none cursor-pointer text-primary-foreground p-1"
+        <DialogPrimitive.Trigger
+          className="touch-target flex items-center justify-center rounded-sm bg-transparent border-none cursor-pointer text-primary-foreground p-1"
           aria-label={menuOpen ? 'Close menu' : 'Open menu'}
           aria-expanded={menuOpen}
         >
@@ -85,29 +82,25 @@ export default function AdminLayout() {
               <line x1="3" y1="6" x2="21" y2="6" /><line x1="3" y1="12" x2="21" y2="12" /><line x1="3" y1="18" x2="21" y2="18" />
             </svg>
           )}
-        </button>
+        </DialogPrimitive.Trigger>
       </header>
 
       {/* Mobile: slide-out drawer */}
-      <Dialog open={menuOpen} onOpenChange={setMenuOpen}>
-          <DialogContent
-            showCloseButton={false}
-            finalFocus={menuButtonRef}
-            className="top-0 left-0 w-64 h-dvh max-h-dvh translate-x-0 translate-y-0 flex flex-col gap-0 rounded-none p-0 bg-primary text-primary-foreground sm:max-w-64"
-          >
-            <DialogTitle className="sr-only">Admin navigation</DialogTitle>
-            <DialogDescription className="sr-only">Choose an admin page or visit the classroom.</DialogDescription>
+      <DialogPrimitive.Portal>
+          <DialogPrimitive.Backdrop className="admin-drawer-backdrop fixed inset-0 bg-black/40 z-40" />
+          <DialogPrimitive.Popup className="admin-drawer fixed top-0 left-0 w-64 max-w-[calc(100%-2rem)] h-dvh overflow-y-auto bg-sidebar text-sidebar-foreground z-50 flex flex-col outline-none" style={{ '--ring': 'var(--sidebar-foreground)' }}>
+            <DialogPrimitive.Title className="sr-only">Admin menu</DialogPrimitive.Title>
+            <DialogPrimitive.Description className="sr-only">Choose an admin page or visit the classroom.</DialogPrimitive.Description>
             <div className="flex items-center justify-between px-4 py-3">
               <img src="/assets/logo-white.svg" alt="plato" className="h-6 w-auto" />
-              <button
-                onClick={() => setMenuOpen(false)}
-                className="bg-transparent border-none cursor-pointer text-primary-foreground p-1"
+              <DialogPrimitive.Close
+                className="touch-target flex items-center justify-center rounded-sm bg-transparent border-none cursor-pointer text-primary-foreground p-1"
                 aria-label="Close menu"
               >
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                   <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
                 </svg>
-              </button>
+              </DialogPrimitive.Close>
             </div>
 
             <nav className="flex flex-col flex-1 gap-0.5 px-2" aria-label="Admin navigation">
@@ -127,7 +120,7 @@ export default function AdminLayout() {
               <Button
                 variant="link"
                 size="sm"
-                className="justify-start p-0 h-auto text-primary-foreground/80 hover:text-primary-foreground"
+                className="justify-start p-0 h-auto text-primary-foreground hover:text-primary-foreground focus-visible:ring-primary-foreground"
                 onClick={handleSignOut}
               >
                 Sign Out
@@ -146,13 +139,14 @@ export default function AdminLayout() {
                 </>
               )}
             </div>
-          </DialogContent>
-      </Dialog>
+          </DialogPrimitive.Popup>
+      </DialogPrimitive.Portal>
 
       {/* Desktop: fixed sidebar */}
       <aside
-        className="hidden md:flex md:w-56 md:h-screen md:fixed md:top-0 md:left-0 bg-primary text-primary-foreground md:flex-col shrink-0"
+        className="hidden md:flex md:w-56 md:h-screen md:fixed md:top-0 md:left-0 bg-sidebar text-sidebar-foreground md:flex-col shrink-0"
         aria-label="Admin sidebar"
+        style={{ '--ring': 'var(--sidebar-foreground)' }}
       >
         <div className="px-4 py-4">
           <img src="/assets/logo-white.svg" alt="plato" className="h-6 w-auto" />
@@ -196,11 +190,12 @@ export default function AdminLayout() {
         </div>
       </aside>
 
-      <main className="min-w-0 flex-1 p-6 md:ml-56">
+      <main className="min-w-0 flex-1 p-4 sm:p-6 md:ml-56">
         <div className="min-w-0 max-w-4xl pb-4">
           <Outlet />
         </div>
       </main>
     </div>
+    </DialogPrimitive.Root>
   );
 }

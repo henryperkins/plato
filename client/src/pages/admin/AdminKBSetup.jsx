@@ -198,9 +198,9 @@ export default function AdminKBSetup() {
             </div>
             <div className="h-1.5 rounded-full bg-muted overflow-hidden">
               <div
-                className="h-full rounded-full transition-all duration-500"
+                className="progress-fill h-full rounded-full"
                 style={{
-                  width: `${readiness * 10}%`,
+                  transform: `scaleX(${readiness / 10})`,
                   backgroundColor: `hsl(${readiness * 12}, 80%, 45%)`,
                 }}
               />

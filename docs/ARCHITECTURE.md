@@ -674,7 +674,7 @@ Once `lessonKB.status === 'completed'`, the thread is feedback-only.
   chatter. Completion semantics must not depend on a model choosing to obey an
   instruction — the freeze is now in code.
 - `achieved` is one-shot — only true on the transition turn — so completion side
-  effects (confetti, completion profile update) don't re-fire on subsequent
+  effects (completion cue, completion profile update) don't re-fire on subsequent
   feedback messages.
 - KB updates (`insights`, `learnerPosition`) are **not** frozen — capturing
   feedback is the entire point of the post-completion thread.

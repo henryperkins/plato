@@ -127,19 +127,14 @@ function Switch({ checked, onCheckedChange, disabled, label }) {
       disabled={disabled}
       onClick={() => onCheckedChange(!checked)}
       className={cn(
-        'relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full transition-colors',
+        'touch-target inline-flex h-5 w-9 shrink-0 cursor-pointer items-center justify-center rounded-full',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
         'disabled:cursor-not-allowed disabled:opacity-50',
-        checked ? 'bg-primary' : 'bg-input',
       )}
     >
-      <span
-        aria-hidden="true"
-        className={cn(
-          'pointer-events-none inline-block h-4 w-4 rounded-full bg-background shadow ring-0 transition-transform',
-          checked ? 'translate-x-[18px]' : 'translate-x-0.5',
-        )}
-      />
+      <span aria-hidden="true" className={cn('pointer-events-none flex h-5 w-9 items-center rounded-full transition-colors', checked ? 'bg-primary' : 'bg-input')}>
+        <span className={cn('inline-block h-4 w-4 rounded-full bg-background shadow ring-0 transition-transform motion-reduce:transition-none', checked ? 'translate-x-[18px]' : 'translate-x-0.5')} />
+      </span>
     </button>
   );
 }
@@ -159,10 +154,10 @@ function PluginCard({ plugin, registryReady, onToggle, onSaveSettings, onUninsta
   const canUninstall = isDisabled && plugin.hasStoredState && !hasLoadError;
 
   return (
-    <Card className={cn('transition-opacity', isDisabled && !hasLoadError && 'opacity-75')}>
+    <Card>
       <CardHeader>
-        <div className="flex items-start justify-between gap-4">
-          <div className="min-w-0 flex-1 space-y-1">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="min-w-0 basis-48 flex-1 space-y-1">
             <div className="flex flex-wrap items-center gap-2">
               <h2 className="text-lg font-semibold leading-none">{plugin.name}</h2>
               <span className="text-xs text-muted-foreground">v{plugin.version}</span>

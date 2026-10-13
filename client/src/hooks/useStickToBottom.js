@@ -78,12 +78,9 @@ export function computeAtBottom(scrollers = [], epsilon = BOTTOM_EPSILON) {
  * Every ancestor of `node` that can scroll vertically. The document is handled
  * separately by the callers, since it's measured through `window`.
  *
- * Why collect all of them instead of resolving a single scroller: `<main>` in
- * `AppShell` declares `overflow-y-auto`, but whether it actually becomes the
- * scrollport depends on the whole flex chain — `h-full` on html/body/#root,
- * `flex-1` on main with no `min-h-0`, and `min-h-[calc(...)]` on LessonChat's
- * root, which can make the content taller than main so the *document* scrolls
- * and main never overflows. Setting `scrollTop` on an element that isn't
+ * The learner shell uses document scrolling so its sticky header stays in the
+ * same scroll context. Embedded authoring views may have an element scrollport,
+ * and future layout changes can move that boundary. Setting `scrollTop` on an element that isn't
  * scrolling is a silent no-op, so acting on every candidate is both harmless and
  * immune to that ambiguity.
  */

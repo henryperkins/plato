@@ -54,7 +54,7 @@ export default function ResetPassword() {
 
   return (
     <main className="min-h-dvh flex flex-col items-center justify-center p-4" style={{ backgroundColor: branding.primary, color: branding.foreground }}>
-      {branding.logo ? (<img src={branding.logo} alt={branding.classroomName} className="h-16 w-16 mb-6 rounded-lg object-contain" />) : (<h1 className="text-2xl font-bold mb-6 break-words max-w-full text-center">{branding.classroomName}</h1>)}
+      {branding.logo ? (<img src={branding.logo} alt={branding.classroomName} className="h-16 w-16 mb-6 rounded-lg object-contain" />) : (<h1 className="max-w-full break-words text-center text-2xl font-bold mb-6">{branding.classroomName}</h1>)}
       <Card className="w-full max-w-md">
         <CardHeader>
           <CardTitle className="text-2xl">Set new password</CardTitle>
@@ -96,8 +96,8 @@ export default function ResetPassword() {
           </Button>
         </CardContent>
       </Card>
-      <p className="mt-4 text-xs">
-        Powered by <a href="https://github.com/1111philo/plato" target="_blank" rel="noopener noreferrer" className="underline">plato</a>.
+      <p className="mt-4 text-xs" style={{ '--ring': 'currentColor' }}>
+        Powered by <a href="https://github.com/1111philo/plato" target="_blank" rel="noopener noreferrer" className="underline hover:no-underline">plato</a>.
       </p>
     </main>
   );

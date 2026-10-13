@@ -50,6 +50,35 @@ describe('isSafeUrl', () => {
   });
 });
 
+describe('renderMd lists', () => {
+  it('keeps unordered items directly inside a single unordered list', () => {
+    assert.equal(renderMd('- First item\n- Second item'), '<ul><li>First item</li><li>Second item</li></ul>');
+  });
+
+  it('preserves emphasis in asterisk-marked items', () => {
+    assert.equal(renderMd('* *First* item\n* **Second** item'), '<ul><li><em>First</em> item</li><li><strong>Second</strong> item</li></ul>');
+  });
+
+  it('groups numbered items with either supported marker', () => {
+    assert.equal(renderMd('1. First item\n2) Second item'), '<ol><li>First item</li><li>Second item</li></ol>');
+  });
+
+  it('keeps adjacent ordered and unordered lists as siblings', () => {
+    assert.equal(renderMd('- First\n- Second\n1. Third\n2. Fourth'), '<ul><li>First</li><li>Second</li></ul><ol><li>Third</li><li>Fourth</li></ol>');
+  });
+
+  it('keeps surrounding prose and separate lists outside list items', () => {
+    assert.equal(renderMd('Before\n- First\n\nBetween\n- Second\nAfter'), 'Before<ul><li>First</li></ul><br>Between<ul><li>Second</li></ul>After');
+  });
+
+  it('retains safe links and escaped HTML inside list items', () => {
+    const html = renderMd('- [Reference](https://example.com)\n- <img src=x onerror=alert(1)>\n- [Unsafe](javascript:alert(1))');
+    assert.match(html, /<li><a href="https:\/\/example\.com"[^>]*>Reference<\/a><\/li>/);
+    assert.match(html, /&lt;img src=x onerror=alert\(1\)&gt;/);
+    assert.doesNotMatch(html, /<img|href="javascript:|<ul><ol>/);
+  });
+});
+
 describe('renderMd markdown links', () => {
   it('renders a safe markdown link as an anchor', () => {
     const html = renderMd('See [the docs](https://example.com/docs).');

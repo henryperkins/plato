@@ -49,7 +49,7 @@ export function BrandingProvider({ children }) {
 
   return (
     <BrandingContext.Provider value={branding}>
-      <div style={classroomStyle} className="flex flex-col flex-1">
+      <div style={classroomStyle} className="classroom-theme flex flex-col flex-1 min-w-0">
         {children}
       </div>
     </BrandingContext.Provider>

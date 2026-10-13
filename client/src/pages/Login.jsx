@@ -46,7 +46,7 @@ export default function Login() {
       {logo ? (
         <img src={logo} alt={classroomName} className="h-16 w-16 mb-6 rounded-lg object-contain" />
       ) : (
-        <h1 className="text-2xl font-bold mb-6 break-words max-w-full text-center">{classroomName}</h1>
+        <h1 className="max-w-full break-words text-center text-2xl font-bold mb-6">{classroomName}</h1>
       )}
       <Card className="w-full max-w-md">
         <CardHeader>
@@ -78,8 +78,8 @@ export default function Login() {
           <Button variant="link" onClick={() => navigate('/forgot-password')}>Forgot password?</Button>
         </CardFooter>
       </Card>
-      <p className="mt-4 text-xs">
-        Powered by <a href="https://github.com/1111philo/plato" target="_blank" rel="noopener noreferrer" className="underline">plato</a>.
+      <p className="mt-4 text-xs" style={{ '--ring': 'currentColor' }}>
+        Powered by <a href="https://github.com/1111philo/plato" target="_blank" rel="noopener noreferrer" className="underline hover:no-underline">plato</a>.
       </p>
     </main>
   );

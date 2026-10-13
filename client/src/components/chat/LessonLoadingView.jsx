@@ -11,6 +11,7 @@
  */
 
 import { CheckCircle2, Circle, Loader2 } from 'lucide-react';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 
 const STEPS = {
   INITIALIZING: 'initializing',
@@ -20,37 +21,37 @@ const STEPS = {
 
 function StepIcon({ status }) {
   if (status === 'completed') {
-    return <CheckCircle2 className="w-5 h-5 text-green-600" aria-hidden="true" />;
+    return <CheckCircle2 className="w-5 h-5 text-success-foreground" aria-hidden="true" />;
   }
   if (status === 'in_progress') {
-    return <Loader2 className="w-5 h-5 animate-spin text-blue-600" aria-hidden="true" />;
+    return <Loader2 className="w-5 h-5 animate-spin text-primary-text" aria-hidden="true" />;
   }
-  return <Circle className="w-5 h-5 text-gray-300" aria-hidden="true" />;
+  return <Circle className="w-5 h-5 text-muted-foreground" aria-hidden="true" />;
 }
 
 function BuildStep({ label, status, detail, enrichments }) {
   const isEnrichment = enrichments !== undefined;
 
   return (
-    <div className="flex gap-3 mb-4">
+    <div className="flex gap-3">
       <div className="flex-shrink-0 mt-0.5">
         <StepIcon status={status} />
       </div>
       <div className="flex-1 min-w-0">
-        <div className="font-medium text-gray-900">
+        <div className="text-sm font-medium">
           {label}
         </div>
         {detail && (
-          <div className="text-sm text-gray-600 mt-0.5">
+          <div className="text-sm text-muted-foreground mt-0.5">
             {detail}
           </div>
         )}
         {isEnrichment && enrichments.length > 0 && status === 'in_progress' && (
           <div className="mt-2 space-y-1">
             {enrichments.map((e, i) => (
-              <div key={i} className="flex items-center gap-2 text-sm text-gray-600">
-                <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
-                <span>{e.label || e.pluginId}</span>
+              <div key={i} className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Loader2 className="w-4 h-4 shrink-0 animate-spin" aria-hidden="true" />
+                <span className="break-words min-w-0">{e.label || e.pluginId}</span>
               </div>
             ))}
           </div>
@@ -98,16 +99,16 @@ export default function LessonLoadingView({ step, enrichments = [] }) {
 
   return (
     <div
-      className="max-w-2xl mx-auto px-6 py-12"
+      className="max-w-2xl mx-auto p-4 sm:py-8"
       role="status"
       aria-live="polite"
       aria-label="Lesson is loading"
     >
-      <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-6">
-        <h2 className="text-lg font-semibold text-gray-900 mb-6">
-          Preparing your lesson
-        </h2>
-        <div>
+      <Card>
+        <CardHeader>
+          <CardTitle><h2>Preparing your lesson</h2></CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
           {steps.map((s) => (
             <BuildStep
               key={s.key}
@@ -117,8 +118,8 @@ export default function LessonLoadingView({ step, enrichments = [] }) {
               enrichments={s.enrichments}
             />
           ))}
-        </div>
-      </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }

@@ -232,7 +232,7 @@ export default function AdminLessons() {
 
   return (
     <div>
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-4">
+      <div className="flex flex-col items-start gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between mb-4">
         <h1 className="text-2xl font-bold">Lessons</h1>
         <div className="flex flex-wrap gap-2">
           <Button onClick={() => navigate('/plato/lessons/new')}>
@@ -673,9 +673,9 @@ function NewLessonView({ onSave, onCancel, onError: _onError, lessonId, isDraft,
             </div>
             <div className="h-1.5 rounded-full bg-muted overflow-hidden">
               <div
-                className="h-full rounded-full transition-all duration-500"
+                className="progress-fill h-full rounded-full"
                 style={{
-                  width: `${readiness * 10}%`,
+                  transform: `scaleX(${readiness / 10})`,
                   backgroundColor: `hsl(${readiness * 12}, 80%, 45%)`,
                 }}
               />

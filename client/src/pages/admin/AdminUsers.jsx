@@ -700,7 +700,7 @@ export default function AdminUsers() {
 
   return (
     <div>
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-4">
+      <div className="flex flex-col items-start gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between mb-4">
         <h1 className="text-2xl font-bold">Users</h1>
         <div className="flex flex-wrap gap-2">
           <Button onClick={() => setInviteOpen(true)}>
@@ -821,8 +821,12 @@ export default function AdminUsers() {
                     </TableCell>
                   </TableRow>
                 ) : (
-                  <TableRow key={item._key} className="cursor-pointer hover:bg-muted/50" onClick={() => openEditUser(item._user)} role="button" tabIndex={0} aria-label={`Edit ${item.name || item.email}`} onKeyDown={e => { if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); openEditUser(item._user); } }}>
-                    <TableCell>{item.name}</TableCell>
+                  <TableRow key={item._key} className="cursor-pointer" onClick={() => openEditUser(item._user)}>
+                    <TableCell>
+                      <button type="button" className="touch-target rounded-sm text-left font-medium underline underline-offset-4 cursor-pointer hover:text-link" aria-label={`Edit ${item.name || item.email}`} onClick={(e) => { e.stopPropagation(); openEditUser(item._user); }}>
+                        {item.name || <span className="text-muted-foreground">&mdash;</span>}
+                      </button>
+                    </TableCell>
                     <TableCell>{item.email}</TableCell>
                     <TableCell>{item.username || <span className="text-muted-foreground">&mdash;</span>}</TableCell>
                     <TableCell>{item.userGroup || <span className="text-muted-foreground">&mdash;</span>}</TableCell>

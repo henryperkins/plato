@@ -6,7 +6,7 @@ export default function PasswordField({ id, name, value, onChange, onKeyDown, pl
   const [visible, setVisible] = useState(false);
 
   return (
-    <div className="relative">
+    <div className="password-field relative">
       <Input
         id={id}
         name={name}
@@ -25,7 +25,7 @@ export default function PasswordField({ id, name, value, onChange, onKeyDown, pl
         type="button"
         variant="ghost"
         size="xs"
-        className="absolute right-1 top-1/2 -translate-y-1/2"
+        className="absolute inset-y-0 right-1 my-auto"
         aria-label={visible ? 'Hide password' : 'Show password'}
         onClick={() => setVisible(!visible)}
       >

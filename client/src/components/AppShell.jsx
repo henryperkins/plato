@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext.jsx';
 import { useBranding } from '../contexts/BrandingContext.jsx';
-import { useViewTransition } from '../hooks/useViewTransition.js';
 import * as DropdownMenuRadix from '@radix-ui/react-dropdown-menu';
 import {
   AlertDialog, AlertDialogContent, AlertDialogHeader,
@@ -15,7 +14,6 @@ export default function AppShell({ children }) {
   const navigate = useNavigate();
   const { user, logout, sessionExpired, impersonatedUser, stopImpersonation } = useAuth();
   const branding = useBranding();
-  const animClass = useViewTransition();
   const [signOutOpen, setSignOutOpen] = useState(false);
   const [viewAsOpen, setViewAsOpen] = useState(false);
   const isAdmin = user?.role === 'admin';
@@ -40,6 +38,7 @@ export default function AppShell({ children }) {
 
   const classroomLogo = branding?.logoBase64 || null;
   const classroomName = branding?.classroomName || branding?.logoAlt || 'plato';
+  const accountName = user?.name || user?.username || user?.email || 'Account';
   const impersonatedLabel =
     impersonatedUser?.name || impersonatedUser?.username || impersonatedUser?.email || 'learner';
 
@@ -51,7 +50,7 @@ export default function AppShell({ children }) {
 
       {/* Admin bar — plato branding, quick links to dashboard */}
       {isAdmin && (
-        <div className="px-4 py-1.5 text-xs text-white" style={{ backgroundColor: '#470d99' }}>
+        <div className="px-4 py-1.5 text-xs text-white" style={{ backgroundColor: '#470d99', '--ring': '#ffffff' }}>
           <div className="mx-auto max-w-5xl flex items-center gap-2">
             <a href="/plato" onClick={e => { e.preventDefault(); navigate('/plato'); }} className="flex items-center gap-1.5 opacity-90 hover:opacity-100">
               <img src="/assets/logo-white.svg" alt="plato" className="h-3 w-auto" />
@@ -106,15 +105,16 @@ export default function AppShell({ children }) {
         style={{
           backgroundColor: 'var(--classroom-header-bg, var(--color-primary))',
           color: 'var(--classroom-header-text, var(--color-primary-foreground))',
+          '--ring': 'var(--classroom-header-text, var(--color-primary-foreground))',
         }}
         role="banner"
       >
         <nav className="mx-auto max-w-5xl flex items-center gap-2" aria-label="Main navigation">
-          <a href="/lessons" onClick={e => { e.preventDefault(); navigate('/lessons'); }} className="min-w-0 max-w-[60%]" aria-label="Go to lessons list">
+          <a href="/lessons" onClick={e => { e.preventDefault(); navigate('/lessons'); }} className="touch-target flex min-w-0 max-w-[60%] items-center rounded-sm" aria-label={`${classroomName} — Lessons`}>
             {classroomLogo ? (
-              <img src={classroomLogo} alt="" className="h-8 w-auto max-w-full object-contain" />
+              <img src={classroomLogo} alt="" className="h-8 max-w-full object-contain" />
             ) : (
-              <span className="block truncate text-sm font-semibold">{classroomName}</span>
+              <span className="text-sm font-semibold break-words">{classroomName}</span>
             )}
           </a>
           <div className="flex-1" />
@@ -122,10 +122,10 @@ export default function AppShell({ children }) {
             <DropdownMenuRadix.Trigger asChild>
               <button
                 type="button"
-                className="max-w-[45%] truncate text-inherit opacity-80 hover:opacity-100 hover:bg-white/10 cursor-pointer bg-transparent border-none rounded-md px-3 py-1.5 text-sm font-medium outline-none"
-                aria-label={`Account: ${user?.username || user?.email || 'signed in'}`}
+                className="touch-target max-w-[45%] min-w-0 text-inherit hover:underline underline-offset-4 cursor-pointer bg-transparent border-none rounded-md px-3 py-1.5 text-sm font-medium break-words"
+                aria-label={`${accountName} — Account`}
               >
-                {user?.name || user?.username || user?.email || 'Account'}
+                {accountName}
               </button>
             </DropdownMenuRadix.Trigger>
             <DropdownMenuRadix.Portal>
@@ -156,7 +156,7 @@ export default function AppShell({ children }) {
         </nav>
       </header>
 
-      <main id="main-content" className={`flex-1 overflow-y-auto bg-stone-100 dark:bg-stone-900 ${animClass}`} tabIndex={-1}>
+      <main id="main-content" className="flex-1 min-w-0 bg-stone-100 dark:bg-stone-900" tabIndex={-1}>
         {children}
       </main>
 

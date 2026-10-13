@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { buildThemeVars, generateFavicon, setFavicon, contrastText } from '../lib/branding.js';
+import { buildThemeVars, contrastText, generateFavicon, setFavicon } from '../lib/branding.js';
 
 /**
  * Fetches classroom branding for public pages (login, signup, forgot/reset password).
@@ -27,12 +27,15 @@ export default function usePublicBranding(pageTitle) {
     if (!branding?.theme) return;
     const vars = buildThemeVars(branding.theme);
     const root = document.documentElement;
+    const hadThemeClass = root.classList.contains('classroom-theme');
+    root.classList.add('classroom-theme');
     const originals = {};
     for (const [key, value] of Object.entries(vars)) {
       originals[key] = root.style.getPropertyValue(key);
       root.style.setProperty(key, value);
     }
     return () => {
+      if (!hadThemeClass) root.classList.remove('classroom-theme');
       for (const [key, value] of Object.entries(originals)) {
         if (value) root.style.setProperty(key, value);
         else root.style.removeProperty(key);

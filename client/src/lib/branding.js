@@ -1,29 +1,77 @@
 /** Shared branding utilities — used by BrandingContext and public auth pages. */
 
+/**
+ * Normalize a CSS color to `#rrggbb`, or return null when it cannot be parsed.
+ * Accepts `#rgb`, `#rgba`, `#rrggbb`, `#rrggbbaa`, bare hex, and
+ * `rgb()`/`rgba()` — legacy or API-set themes are not always six-digit hex,
+ * and dropping them silently loses all classroom branding.
+ */
+export function normalizeHex(value) {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  const rgb = trimmed.match(/^rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})(?:\s*,\s*[\d.]+%?)?\s*\)$/i);
+  if (rgb) {
+    return '#' + rgb.slice(1, 4).map(c => Math.min(255, Number(c)).toString(16).padStart(2, '0')).join('');
+  }
+  const hex = trimmed.match(/^#?([\da-f]{3}|[\da-f]{4}|[\da-f]{6}|[\da-f]{8})$/i);
+  if (!hex) return null;
+  const digits = hex[1].toLowerCase();
+  if (digits.length === 3) return '#' + [...digits].map(c => c + c).join('');
+  if (digits.length === 4) return '#' + [...digits.slice(0, 3)].map(c => c + c).join('');
+  return '#' + digits.slice(0, 6);
+}
+
+function channelsOf(hex) {
+  const normalized = normalizeHex(hex) || '#000000';
+  return [1, 3, 5].map(index => parseInt(normalized.slice(index, index + 2), 16));
+}
+
 /** Relative luminance (0=black, 1=white). */
 export function luminance(hex) {
-  const r = parseInt(hex.slice(1, 3), 16) / 255;
-  const g = parseInt(hex.slice(3, 5), 16) / 255;
-  const b = parseInt(hex.slice(5, 7), 16) / 255;
+  const [r255, g255, b255] = channelsOf(hex);
+  const r = r255 / 255;
+  const g = g255 / 255;
+  const b = b255 / 255;
   const lin = (c) => c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
   return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
 }
 
-/** Pick white or dark text for readable contrast on a background. */
+export function contrastRatio(foreground, background) {
+  const a = luminance(foreground);
+  const b = luminance(background);
+  return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+}
+
+/** Keep the familiar near-black when possible; pure black closes its contrast gap. */
 export function contrastText(bgHex) {
-  const background = luminance(bgHex);
-  const whiteRatio = 1.05 / (background + 0.05);
-  const darkRatio = (background + 0.05) / (luminance('#1a1a1a') + 0.05);
-  if (whiteRatio >= 4.5 && whiteRatio >= darkRatio) return '#ffffff';
-  // Some midtones need black to clear 4.5:1 rather than the usual dark gray.
-  return darkRatio >= 4.5 ? '#1a1a1a' : '#000000';
+  const white = contrastRatio('#ffffff', bgHex);
+  const dark = contrastRatio('#1a1a1a', bgHex);
+  if (white >= 4.5 && white >= dark) return '#ffffff';
+  return dark >= 4.5 ? '#1a1a1a' : '#000000';
+}
+
+/** Adjust only failing colors toward a readable endpoint, retaining their hue. */
+export function readableColor(hex, background, minimum = 4.6) {
+  const normalized = normalizeHex(hex);
+  if (!normalized) return hex;
+  if (contrastRatio(normalized, background) >= minimum) return normalized;
+  const endpoint = contrastText(background) === '#ffffff' ? 255 : 0;
+  const channels = channelsOf(normalized);
+  for (let step = 1; step <= 100; step++) {
+    const adjusted = '#' + channels.map(channel =>
+      Math.round(channel + (endpoint - channel) * step / 100).toString(16).padStart(2, '0')
+    ).join('');
+    if (contrastRatio(adjusted, background) >= minimum) return adjusted;
+  }
+  return endpoint === 255 ? '#ffffff' : '#000000';
 }
 
 /** Convert hex to oklch string. */
 export function hexToOklch(hex) {
-  const r = parseInt(hex.slice(1, 3), 16) / 255;
-  const g = parseInt(hex.slice(3, 5), 16) / 255;
-  const b = parseInt(hex.slice(5, 7), 16) / 255;
+  const [r255, g255, b255] = channelsOf(hex);
+  const r = r255 / 255;
+  const g = g255 / 255;
+  const b = b255 / 255;
   const lin = (c) => c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
   const lr = lin(r), lg = lin(g), lb = lin(b);
   const l_ = 0.4122214708 * lr + 0.5363325363 * lg + 0.0514459929 * lb;
@@ -42,17 +90,26 @@ export function hexToOklch(hex) {
 export function buildThemeVars(theme) {
   const vars = {};
   if (!theme) return vars;
-  const { primary, accent } = theme;
+  const primary = normalizeHex(theme.primary);
+  const accent = normalizeHex(theme.accent) || primary;
   if (primary) {
     vars['--classroom-header-bg'] = primary;
     vars['--classroom-header-text'] = contrastText(primary);
     vars['--primary'] = hexToOklch(primary);
     vars['--primary-foreground'] = hexToOklch(contrastText(primary));
-    vars['--ring'] = hexToOklch(primary);
+    vars['--classroom-primary-text-light'] = hexToOklch(readableColor(primary, '#f5f5f5'));
+    vars['--classroom-primary-text-dark'] = hexToOklch(readableColor(primary, '#303030'));
   }
   if (accent) {
-    const accentColor = accent !== primary ? accent : primary;
-    vars['--ring'] = hexToOklch(accentColor);
+    vars['--classroom-link-light'] = hexToOklch(readableColor(accent, '#f5f5f5'));
+    vars['--classroom-link-dark'] = hexToOklch(readableColor(accent, '#303030'));
+    vars['--classroom-ring-light'] = vars['--classroom-link-light'];
+    vars['--classroom-ring-dark'] = vars['--classroom-link-dark'];
+    // Restore the pre-rework contract: consumers that apply these vars
+    // without `.classroom-theme` still get a themed focus ring instead of
+    // silently falling back to the default purple. The dark rule in
+    // index.css overrides this inline (light) value with !important.
+    vars['--ring'] = vars['--classroom-ring-light'];
   }
   return vars;
 }
