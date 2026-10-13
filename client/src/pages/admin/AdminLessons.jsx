@@ -19,6 +19,7 @@ import { parseResponse, cleanStream, buildConversationText } from '../../lib/les
 import { useStreamedText } from '../../hooks/useStreamedText.js';
 import { useTitleNotification } from '../../hooks/useTitleNotification.js';
 import { MSG_TYPES } from '../../lib/constants.js';
+import { aiErrorMessage } from '../../lib/aiErrors.js';
 
 import ChatArea from '../../components/chat/ChatArea.jsx';
 import ComposeBar from '../../components/chat/ComposeBar.jsx';
@@ -509,7 +510,7 @@ function NewLessonView({ onSave, onCancel, onError: _onError, lessonId, isDraft,
         pendingRef.current = { msgs: [msg], r: r ?? readiness };
         setStreamingText(null);
       } catch (e) {
-        if (!cancelled) { setError(e.message || 'Failed to start.'); setBusy(''); setStreamingText(null); }
+        if (!cancelled) { setError(aiErrorMessage(e, 'lesson-creator')); setBusy(''); setStreamingText(null); }
       }
     })();
 
@@ -544,7 +545,7 @@ function NewLessonView({ onSave, onCancel, onError: _onError, lessonId, isDraft,
       pendingRef.current = { msgs: [assistantMsg], r };
       setStreamingText(null);
     } catch (e) {
-      setError(e.message || 'Failed to send.');
+      setError(aiErrorMessage(e, 'lesson-creator'));
       setStreamingText(null);
       setBusy('');
     }
@@ -592,7 +593,7 @@ function NewLessonView({ onSave, onCancel, onError: _onError, lessonId, isDraft,
       const conversation = chatMessages.map(m => ({ role: m.role, content: m.content, msgType: m.msgType }));
       await onSave(lesson.name, md, conversation, readiness);
     } catch (e) {
-      setError(e.message || 'Failed to create lesson.');
+      setError(aiErrorMessage(e, 'lesson-builder'));
       setBusy('');
     }
   }
@@ -614,7 +615,7 @@ function NewLessonView({ onSave, onCancel, onError: _onError, lessonId, isDraft,
       setPreviewMarkdown(md);
       setPreviewSyncedAt(chatMessages.length);
     } catch (e) {
-      setPreviewError(e.message || 'Failed to generate preview.');
+      setPreviewError(aiErrorMessage(e, 'preview'));
     } finally {
       setPreviewLoading(false);
     }

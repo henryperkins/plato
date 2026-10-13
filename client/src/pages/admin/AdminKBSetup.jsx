@@ -8,6 +8,7 @@ import { parseResponse, cleanStream, buildConversationText } from '../../lib/les
 import { useStreamedText } from '../../hooks/useStreamedText.js';
 import { useTitleNotification } from '../../hooks/useTitleNotification.js';
 import { MSG_TYPES } from '../../lib/constants.js';
+import { aiErrorMessage } from '../../lib/aiErrors.js';
 
 import ChatArea from '../../components/chat/ChatArea.jsx';
 import ComposeBar from '../../components/chat/ComposeBar.jsx';
@@ -77,7 +78,7 @@ export default function AdminKBSetup() {
         pendingRef.current = { msgs: [msg], r: r ?? 1 };
         setStreamingText(null);
       } catch (e) {
-        if (!cancelled) { setError(e.message || 'Failed to start.'); setBusy(''); setStreamingText(null); }
+        if (!cancelled) { setError(aiErrorMessage(e, 'kb-editor')); setBusy(''); setStreamingText(null); }
       }
     })();
 
@@ -109,7 +110,7 @@ export default function AdminKBSetup() {
       pendingRef.current = { msgs: [assistantMsg], r };
       setStreamingText(null);
     } catch (e) {
-      setError(e.message || 'Failed to send.');
+      setError(aiErrorMessage(e, 'kb-editor'));
       setStreamingText(null);
       setBusy('');
     }
@@ -131,7 +132,7 @@ export default function AdminKBSetup() {
       await adminApi('PUT', '/v1/admin/knowledge-base', { content: md, conversation, readiness });
       navigate('/plato');
     } catch (e) {
-      setError(e.message || 'Failed to save.');
+      setError(aiErrorMessage(e, 'kb-builder'));
       setBusy('');
     }
   }
@@ -153,7 +154,7 @@ export default function AdminKBSetup() {
       setPreviewMarkdown(md);
       setPreviewSyncedAt(chatMessages.length);
     } catch (e) {
-      setPreviewError(e.message || 'Failed to generate preview.');
+      setPreviewError(aiErrorMessage(e, 'preview'));
     } finally {
       setPreviewLoading(false);
     }

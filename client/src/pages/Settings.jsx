@@ -13,6 +13,7 @@ import CustomFieldInput from '../components/CustomFieldInput.jsx';
 import * as orchestrator from '../../js/orchestrator.js';
 import { syncInBackground } from '../lib/syncDebounce.js';
 import { ensureProfileExists, mergeProfile } from '../lib/profileQueue.js';
+import { aiErrorMessage } from '../lib/aiErrors.js';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -301,7 +302,7 @@ function ProfileFeedbackDialog({ open, onOpenChange, onDone }) {
       setText('');
       if (onDone) onDone();
     } catch (e) {
-      setError(e?.message || 'Could not update your profile. Please try again.');
+      setError(aiErrorMessage(e, 'profile-feedback'));
     } finally {
       setSubmitting(false);
     }

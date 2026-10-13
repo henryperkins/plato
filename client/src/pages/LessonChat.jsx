@@ -6,6 +6,7 @@ import { useAuth } from '../contexts/AuthContext.jsx';
 import { useStreamedText } from '../hooks/useStreamedText.js';
 import { useTitleNotification } from '../hooks/useTitleNotification.js';
 import { LESSON_PHASES, MSG_TYPES } from '../lib/constants.js';
+import { aiErrorMessage } from '../lib/aiErrors.js';
 import {
   getLessonKB, deleteLessonProgress,
   getUserLessonMarkdown, deleteUserLesson,
@@ -205,7 +206,7 @@ export default function LessonChat() {
           pendingAfterStreamRef.current = { msgs: result.messages, p: result.phase };
           setStreamingText(null);
         } catch (e) {
-          if (!cancelled) { setError(e.message || 'Failed to start lesson.'); setLoading(''); setStreamingText(null); }
+          if (!cancelled) { setError(aiErrorMessage(e, 'coach-start')); setLoading(''); setStreamingText(null); }
         }
       }
     })();
@@ -247,7 +248,7 @@ export default function LessonChat() {
       const freshKB = await getLessonKB(lessonGroupId);
       setLessonKB(freshKB);
     } catch (e) {
-      setError(e.message || 'Failed to send.');
+      setError(aiErrorMessage(e, 'coach-reply'));
       setComposeText(text || '');
       setComposeImages((imageDataUrls || []).map((dataUrl, index) => ({ dataUrl, name: `Attached image ${index + 1}` })));
       setComposeLinks(links || []);

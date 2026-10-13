@@ -107,7 +107,7 @@ describe('POST /v1/ai/messages', () => {
       messages: [{ role: 'user', content: '' }],
     });
     assert.equal(res.status, 400);
-    assert.equal((await res.json()).error, 'messages must have non-empty content');
+    assert.deepEqual(await res.json(), { error: 'messages must have non-empty content', code: 'empty_message' });
   });
 
   it('returns 400 when a message has empty array content', async () => {
@@ -118,7 +118,7 @@ describe('POST /v1/ai/messages', () => {
       messages: [{ role: 'user', content: [] }],
     });
     assert.equal(res.status, 400);
-    assert.equal((await res.json()).error, 'messages must have non-empty content');
+    assert.deepEqual(await res.json(), { error: 'messages must have non-empty content', code: 'empty_message' });
   });
 
   it('omits system from body when not provided', async () => {
@@ -179,6 +179,36 @@ describe('POST /v1/ai/messages', () => {
 
     assert.equal(text, 'Nice work. [PROGRESS: 10]');
     assert.ok(raw.includes('data: [DONE]'));
+  });
+
+  it('streams a classified error event without the raw provider message', async () => {
+    const denied = new Error('User: arn:aws:sts::123456789012:assumed-role/plato-api/fn is not authorized');
+    denied.name = 'AccessDeniedException';
+    denied.$metadata = { httpStatusCode: 403 };
+    aiProvider.invokeStream = async function* () {
+      if (denied) throw denied;
+      yield { type: 'message_stop' };
+    };
+    const app = new Hono();
+    app.route('/', ai);
+    const originalConsoleError = console.error;
+    console.error = () => {};
+    let raw;
+    try {
+      const res = await authedReq(app, 'POST', '/v1/ai/messages', {
+        model: 'qwen3-vl-235b',
+        messages: [{ role: 'user', content: 'Hi' }],
+        stream: true,
+      });
+      assert.equal(res.status, 200);
+      raw = await res.text();
+    } finally {
+      console.error = originalConsoleError;
+    }
+
+    const events = raw.split('\n').filter((l) => l.startsWith('data: ')).map((l) => JSON.parse(l.slice(6)));
+    assert.deepEqual(events, [{ type: 'error', error: { code: 'ai_unavailable', message: 'The AI service is unavailable.' } }]);
+    assert.doesNotMatch(raw, /arn:|123456789012/);
   });
 
   it('returns a Converse-translated non-streaming response in Anthropic shape', async () => {

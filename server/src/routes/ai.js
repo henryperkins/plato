@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { stream } from 'hono/streaming';
 import { authenticate } from '../middleware/authenticate.js';
 import ai from '../lib/ai-provider.js';
+import { classifyAiError } from '../lib/ai-errors.js';
 
 const aiRoute = new Hono();
 
@@ -17,7 +18,7 @@ aiRoute.post('/v1/ai/messages', async (c) => {
   // Reject messages with empty content — Bedrock returns ValidationException for these
   for (const msg of messages) {
     if (!msg.content || (typeof msg.content === 'string' && !msg.content.trim()) || (Array.isArray(msg.content) && msg.content.length === 0)) {
-      return c.json({ error: 'messages must have non-empty content' }, 400);
+      return c.json({ error: 'messages must have non-empty content', code: 'empty_message' }, 400);
     }
   }
 
@@ -44,7 +45,10 @@ aiRoute.post('/v1/ai/messages', async (c) => {
       await s.write('data: [DONE]\n\n');
     } catch (err) {
       console.error('Streaming error:', err);
-      await s.write(`data: ${JSON.stringify({ type: 'error', error: { message: err.message } })}\n\n`);
+      // A stable code and a generic message, never the raw provider text,
+      // which can include the AWS account ID and IAM role name.
+      const { code, message } = classifyAiError(err);
+      await s.write(`data: ${JSON.stringify({ type: 'error', error: { code, message } })}\n\n`);
     }
   });
 });

@@ -187,6 +187,30 @@ it is less consistent — one observed outlier hit 47 s TTFT. Streaming hides so
 of this, and `BEDROCK_TIMEOUT_MS` (115 s) still bounds the worst case, but the
 tail is real and worth watching in the log-watch alarm.
 
+### Errors shown to users
+
+A failed AI call should say what failed and what to do next, and never echo
+provider internals. On a streaming failure, `server/src/routes/ai.js` classifies
+the Bedrock error with `server/src/lib/ai-errors.js` into a stable code
+(`ai_unavailable`, `ai_rate_limited`, `ai_overloaded`, `ai_timeout`,
+`ai_invalid_request`, `ai_error`) and streams
+`{ type: 'error', error: { code, message } }` with a generic message, because raw
+AWS text can include the account ID and IAM role name. Server logs keep the full
+error. The empty-content guard answers with `code: 'empty_message'`.
+Non-streaming failures still reach the global error handler as a 500.
+
+The client must surface these. `parseSSEStream` throws on an error event, and
+`converseStream` drops empty turns before sending and treats an empty reply as
+a failure. Before this, a failed stream looked like an empty reply: the admin
+chats kept it as a blank turn, and the next send failed with the guard's
+"messages must have non-empty content" instead of the real cause.
+
+`client/src/lib/aiErrors.js` maps the code, plus the surface that made the call,
+to the copy each page shows. Learners get plain language; admins also get the
+configuration hint, such as checking AWS credentials. Errors that don't come
+from an AI call keep their own message. Add a surface there when a new page
+calls an agent.
+
 ## Image & conversation persistence (#191, #193)
 
 A learner's chat history for a lesson lives in one `messages:<lessonId>`

@@ -14,6 +14,7 @@ import { useStreamedText } from '../../hooks/useStreamedText.js';
 import { useTitleNotification } from '../../hooks/useTitleNotification.js';
 import { MSG_TYPES } from '../../lib/constants.js';
 import { buildThemeVars, contrastText } from '../../lib/branding.js';
+import { aiErrorMessage } from '../../lib/aiErrors.js';
 
 import ChatArea from '../../components/chat/ChatArea.jsx';
 import ComposeBar from '../../components/chat/ComposeBar.jsx';
@@ -360,7 +361,7 @@ function KBEditor({ initialContent, onSave, onCancel, initialConversation, initi
         pendingRef.current = { msgs: [msg], r: r ?? (isEditing ? 8 : 1) };
         setStreamingText(null);
       } catch (e) {
-        if (!cancelled) { setError(e.message || 'Failed to start.'); setBusy(''); setStreamingText(null); }
+        if (!cancelled) { setError(aiErrorMessage(e, 'kb-editor')); setBusy(''); setStreamingText(null); }
       }
     })();
 
@@ -392,7 +393,7 @@ function KBEditor({ initialContent, onSave, onCancel, initialConversation, initi
       pendingRef.current = { msgs: [assistantMsg], r };
       setStreamingText(null);
     } catch (e) {
-      setError(e.message || 'Failed to send.');
+      setError(aiErrorMessage(e, 'kb-editor'));
       setStreamingText(null);
       setBusy('');
     }
@@ -414,7 +415,7 @@ function KBEditor({ initialContent, onSave, onCancel, initialConversation, initi
       const conversation = chatMessages.map(m => ({ role: m.role, content: m.content, msgType: m.msgType }));
       await onSave(md, conversation, readiness);
     } catch (e) {
-      setError(e.message || 'Failed to save.');
+      setError(aiErrorMessage(e, 'kb-builder'));
       setBusy('');
     }
   }
@@ -436,7 +437,7 @@ function KBEditor({ initialContent, onSave, onCancel, initialConversation, initi
       setPreviewMarkdown(md);
       setPreviewSyncedAt(chatMessages.length);
     } catch (e) {
-      setPreviewError(e.message || 'Failed to generate preview.');
+      setPreviewError(aiErrorMessage(e, 'preview'));
     } finally {
       setPreviewLoading(false);
     }

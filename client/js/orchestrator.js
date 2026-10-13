@@ -3,7 +3,7 @@
  * parses structured JSON responses.
  */
 
-import { parseSSEStream, parseResponse, LLM, ApiError } from './api.js';
+import { parseSSEStream, parseResponse, LLM, ApiError, withoutEmptyMessages } from './api.js';
 import { authenticatedFetch } from './auth.js';
 import { validateLessonKB } from './validators.js';
 
@@ -142,12 +142,15 @@ export async function converseStream(promptName, messages, onChunk, maxTokens = 
   const resp = await authenticatedFetch('/v1/ai/messages', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model: LLM, max_tokens: maxTokens, system: systemPrompt, messages, stream: true }),
+    body: JSON.stringify({ model: LLM, max_tokens: maxTokens, system: systemPrompt, messages: withoutEmptyMessages(messages), stream: true }),
   });
   const contentType = resp.headers.get('content-type') || '';
   if (resp.ok && contentType.includes('text/event-stream')) {
     let full = '';
     for await (const chunk of parseSSEStream(resp.body)) { full += chunk; onChunk(full); }
+    // An empty reply is a failure, not a turn: saving it would leave a blank
+    // message in the conversation.
+    if (!full.trim()) throw new ApiError('empty_response', 'The AI returned an empty reply.');
     return full;
   }
   // Non-streaming response (proxy returned JSON)
