@@ -1,0 +1,17 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "broken-image",
+        "value": "*",
+        "files": [
+          "client/tests/helpers.test.js"
+        ],
+        "createdAt": "2026-10-13T00:56:38.516Z",
+        "reason": "Agent verified: this is an intentionally hostile HTML string in a markdown escaping regression test, not a rendered image."
+      }
+    ]
+  }
+}
