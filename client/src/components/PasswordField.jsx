@@ -2,7 +2,10 @@ import { useState } from 'react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 
-export default function PasswordField({ id, name, value, onChange, onKeyDown, placeholder, autoComplete, inputRef, required, disabled }) {
+export default function PasswordField({
+  id, name, value, onChange, onKeyDown, placeholder, autoComplete, inputRef, required, disabled,
+  'aria-describedby': ariaDescribedBy,
+}) {
   const [visible, setVisible] = useState(false);
 
   return (
@@ -19,6 +22,7 @@ export default function PasswordField({ id, name, value, onChange, onKeyDown, pl
         ref={inputRef}
         required={required}
         disabled={disabled}
+        aria-describedby={ariaDescribedBy}
         className="pr-16"
       />
       <Button

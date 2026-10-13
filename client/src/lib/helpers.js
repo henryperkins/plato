@@ -18,7 +18,10 @@ export function isSafeUrl(url) {
 
 /** Lightweight markdown to HTML. Handles bold, italic, headings, lists, links, and line breaks. */
 export function renderMd(text) {
-  let escaped = esc(text);
+  // Every line-based rule below (lists, tables, <br>) splits on \n. A stray
+  // \r from CRLF or CR-only text would split one list into several and keep
+  // tables from rendering, so normalize line endings first.
+  let escaped = esc(text).replace(/\r\n?/g, '\n');
   // Markdown links [text](url) — must come before heading/bold/italic replacements
   // so nested formatting inside link text is handled correctly. Unsafe-protocol
   // URLs are left as the literal markdown text rather than rendered as anchors.

@@ -292,12 +292,17 @@ on send. Three traps here each produced a shipped-but-broken fix:
    auto-scroll re-fired on every streamed character. Hence the **capturing**
    `window` listener: `scroll` doesn't bubble but does capture, so it sees
    whichever element scrolls without naming it.
-2. **There is no single scrollport to resolve.** `<main>` declares
-   `overflow-y-auto`, but whether it or the document scrolls depends on the whole
-   flex chain (`h-full` on html/body/#root, `flex-1` with no `min-h-0`,
-   `min-h-[calc(...)]` on `LessonChat`'s root). Setting `scrollTop` on a
-   non-scrolling element is a **silent no-op**, indistinguishable from an unwired
-   feature — so the pin writes to every scrollable ancestor plus `window`.
+2. **The learner shell scrolls the document, and must keep doing so.** An
+   `overflow` of `auto`, `scroll`, or `hidden` on `<main>` (or any other
+   ancestor of the lesson header) makes that element the sticky header's scroll
+   container, and the header silently stops sticking. With no clipping
+   ancestor, wide content must contain its own horizontal overflow
+   (`.coach-copy` wraps anywhere). The footer isn't pinned to the viewport
+   either, so the fixed compose overlay sits at `bottom-0`. Embedded authoring
+   views can still have an element scrollport, and setting `scrollTop` on a
+   non-scrolling element is a **silent no-op**, indistinguishable from an
+   unwired feature — so the pin writes to every scrollable ancestor plus
+   `window`.
 3. **The compose bar sits inside the scroll container**, after the log, so
    `scrollIntoView` on a sentinel stops short of the true bottom and hides the
    newest message behind the fixed overlay. Request `scrollTop = scrollHeight`

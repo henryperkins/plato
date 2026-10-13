@@ -265,7 +265,7 @@ function KBViewer({ content, updatedAt, updatedByName, onEdit }) {
       {content ? (
         <Card>
           <CardContent>
-            <div className="prose prose-sm max-w-none" dangerouslySetInnerHTML={{ __html: renderMd(content) }} />
+            <div className="coach-copy" dangerouslySetInnerHTML={{ __html: renderMd(content) }} />
           </CardContent>
         </Card>
       ) : (

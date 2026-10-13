@@ -183,7 +183,7 @@ export default function Settings() {
 
           <Separator />
 
-          <form className="space-y-3" onSubmit={handleChangePassword} aria-describedby="password-feedback">
+          <form className="space-y-3" onSubmit={handleChangePassword}>
             <div className="space-y-1.5">
               <Label htmlFor="new-password">New Password</Label>
               <PasswordField
@@ -192,6 +192,7 @@ export default function Settings() {
                 value={newPassword}
                 onChange={(e) => { setNewPassword(e.target.value); setPasswordFeedback(null); }}
                 disabled={passwordSubmitting}
+                aria-describedby="password-feedback"
               />
             </div>
             <div className="space-y-1.5">
@@ -203,6 +204,7 @@ export default function Settings() {
                 onChange={(e) => { setConfirmPassword(e.target.value); setPasswordFeedback(null); }}
                 onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleChangePassword(e); } }}
                 disabled={passwordSubmitting}
+                aria-describedby="password-feedback"
               />
             </div>
             <Button type="submit" disabled={passwordSubmitting}>
@@ -219,7 +221,7 @@ export default function Settings() {
             <CardTitle><h2>Profile</h2></CardTitle>
           </CardHeader>
           <CardContent>
-            <form className="space-y-4" onSubmit={handleSaveFields} aria-describedby="fields-feedback" noValidate>
+            <form className="space-y-4" onSubmit={handleSaveFields} noValidate>
               {userFields.map((f) => (
                 <CustomFieldInput
                   key={f.id}
@@ -228,6 +230,7 @@ export default function Settings() {
                   value={fieldValues[f.id]}
                   onChange={(v) => { setFieldValues((prev) => ({ ...prev, [f.id]: v })); setFieldsFeedback(null); }}
                   disabled={fieldsSaving}
+                  describedBy="fields-feedback"
                 />
               ))}
               <Button type="submit" disabled={fieldsSaving}>

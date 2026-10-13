@@ -3,8 +3,8 @@
  *   - buildContext emits lessonStatus and the post-completion directive once
  *     a lesson is complete, and suppresses pacing directives in that state.
  *   - applyCoachResponseToKB treats `achieved` as a one-shot transition and
- *     freezes activitiesCompleted post-completion so confetti / completion-
- *     profile updates don't re-fire on feedback messages.
+ *     freezes activitiesCompleted post-completion so the completion cue and
+ *     completion-profile updates don't re-fire on feedback messages.
  */
 
 import { describe, it } from 'node:test';

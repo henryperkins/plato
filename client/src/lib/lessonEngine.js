@@ -492,8 +492,9 @@ function clampProgress(progress) {
  * Apply a parsed coach response to a lesson KB. Pure — returns a new KB
  * without mutating the input. Centralizes the "feedback mode" invariant:
  * once a lesson is completed, progress and the exchange counter both freeze
- * and `achieved` can't re-fire, so one-shot side effects (confetti, completion
- * profile update) stay one-shot across the feedback conversation that follows.
+ * and `achieved` can't re-fire, so one-shot side effects (completion cue,
+ * completion profile update) stay one-shot across the feedback conversation
+ * that follows.
  *
  * This function is the single owner of completion semantics — it must not
  * delegate any part of that to the model's willingness to follow the prompt.
@@ -534,7 +535,8 @@ export function applyCoachResponseToKB(prevKB, parsed, { now = Date.now } = {}) 
 
   // `achieved` means "just achieved on this turn" — one-shot. Without this
   // guard it would re-fire on every post-completion message, triggering
-  // confetti + completion-profile updates repeatedly in the feedback thread.
+  // the completion cue + completion-profile updates repeatedly in the feedback
+  // thread.
   // Compare the clamped value so a malformed out-of-range score can't complete
   // a lesson that the stored progress doesn't reflect.
   const achieved = reportedProgress >= MAX_PROGRESS && !wasCompleted;

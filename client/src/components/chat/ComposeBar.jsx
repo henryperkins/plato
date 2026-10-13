@@ -83,7 +83,11 @@ export default function ComposeBar({
     handleResize({ target: inputRef.current });
   }, [text, handleResize]);
 
-  // Width, font loading, zoom, and root text-size changes can alter line wrapping.
+  // Width, zoom, root text size, and font loading can alter line wrapping.
+  // The parent observer covers width and root text size, because its
+  // rem-based padding and toolbar resize with the root font even though the
+  // textarea's explicit pixel height does not. That makes an <html>
+  // attribute observer redundant.
   useEffect(() => {
     const input = inputRef.current;
     if (!input) return;
@@ -94,14 +98,11 @@ export default function ComposeBar({
     };
     const observer = new ResizeObserver(resize);
     observer.observe(input.parentElement);
-    const rootObserver = new MutationObserver(resize);
-    rootObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['style', 'class'] });
     window.addEventListener('resize', resize);
     document.fonts?.addEventListener('loadingdone', resize);
     return () => {
       cancelAnimationFrame(frame);
       observer.disconnect();
-      rootObserver.disconnect();
       window.removeEventListener('resize', resize);
       document.fonts?.removeEventListener('loadingdone', resize);
     };

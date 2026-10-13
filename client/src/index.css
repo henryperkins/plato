@@ -229,7 +229,9 @@
   }
 }
 
-/* Coach formatting is scoped to the reading surface, not interface lists. */
+/* renderMd output (coach messages and admin markdown previews) is styled here,
+   scoped away from interface lists. Tailwind preflight strips list markers,
+   and the typography plugin is not installed, so `prose` classes do nothing. */
 .coach-copy {
   overflow-wrap: anywhere;
 }

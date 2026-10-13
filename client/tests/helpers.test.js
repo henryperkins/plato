@@ -79,6 +79,25 @@ describe('renderMd lists', () => {
   });
 });
 
+describe('renderMd line endings', () => {
+  it('keeps CRLF-separated items in one list with no stray carriage returns', () => {
+    assert.equal(renderMd('- First\r\n- Second'), '<ul><li>First</li><li>Second</li></ul>');
+    assert.equal(renderMd('1. First\r\n2. Second'), '<ol><li>First</li><li>Second</li></ol>');
+  });
+
+  it('treats CR-only line endings like LF', () => {
+    assert.equal(renderMd('Before\r- First\r- Second\rAfter'), 'Before<ul><li>First</li><li>Second</li></ul>After');
+  });
+
+  it('renders CRLF tables and line breaks exactly like LF', () => {
+    const lf = 'Intro\n| Term | Meaning |\n|---|---|\n| KB | Knowledge base |\nOutro';
+    const html = renderMd(lf.replace(/\n/g, '\r\n'));
+    assert.equal(html, renderMd(lf));
+    assert.match(html, /<td[^>]*>KB<\/td><td[^>]*>Knowledge base<\/td>/);
+    assert.doesNotMatch(html, /\r/);
+  });
+});
+
 describe('renderMd markdown links', () => {
   it('renders a safe markdown link as an anchor', () => {
     const html = renderMd('See [the docs](https://example.com/docs).');

@@ -9,14 +9,16 @@ const SELECT_CLASS = 'h-10 w-full rounded-lg border border-input bg-transparent 
  * Signup, /settings, ProfileCompletionGate, and the Admin → Edit User card.
  * Required fields show a visible "(required)" marker; it's aria-hidden
  * because aria-required already announces it (avoids "required, required").
+ * `describedBy` links the control to a feedback or help element by id.
  */
-export default function CustomFieldInput({ field, value, onChange, idPrefix = 'cf', disabled = false }) {
+export default function CustomFieldInput({ field, value, onChange, idPrefix = 'cf', disabled = false, describedBy }) {
   const id = `${idPrefix}-${field.id}`;
   const common = {
     id,
     value: value ?? '',
     disabled,
     'aria-required': field.required || undefined,
+    'aria-describedby': describedBy,
     onChange: (e) => onChange(e.target.value),
   };
 

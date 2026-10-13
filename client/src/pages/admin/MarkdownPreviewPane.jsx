@@ -99,7 +99,7 @@ export default function MarkdownPreviewPane({
           <div className="text-sm text-muted-foreground">Generating preview…</div>
         ) : hasContent ? (
           <div
-            className="prose prose-sm max-w-none"
+            className="coach-copy"
             dangerouslySetInnerHTML={{ __html: renderMd(markdown) }}
           />
         ) : (
