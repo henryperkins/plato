@@ -1,8 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext.jsx';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
+import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 
 const NAV_LINKS = [
   { to: '/plato', label: 'Home', end: true },
@@ -38,9 +39,18 @@ export default function AdminLayout() {
   const location = useLocation();
   const [version, setVersion] = useState(null);
   const [menuOpen, setMenuOpen] = useState(false);
+  const menuButtonRef = useRef(null);
 
   useEffect(() => {
     fetch('/v1/version').then(r => r.json()).then(d => setVersion(d.version)).catch(() => {});
+  }, []);
+
+  // Release modal focus and scroll locking when the desktop sidebar takes over.
+  useEffect(() => {
+    const breakpoint = window.matchMedia('(min-width: 768px)');
+    const closeOnDesktop = (event) => { if (event.matches) setMenuOpen(false); };
+    breakpoint.addEventListener('change', closeOnDesktop);
+    return () => breakpoint.removeEventListener('change', closeOnDesktop);
   }, []);
 
   // Close menu on route change
@@ -60,6 +70,7 @@ export default function AdminLayout() {
           <img src="/assets/logo-white.svg" alt="plato" className="h-6 w-auto" />
         </a>
         <button
+          ref={menuButtonRef}
           onClick={() => setMenuOpen(!menuOpen)}
           className="bg-transparent border-none cursor-pointer text-primary-foreground p-1"
           aria-label={menuOpen ? 'Close menu' : 'Open menu'}
@@ -78,14 +89,14 @@ export default function AdminLayout() {
       </header>
 
       {/* Mobile: slide-out drawer */}
-      {menuOpen && (
-        <>
-          <div
-            className="md:hidden fixed inset-0 bg-black/40 z-40"
-            onClick={() => setMenuOpen(false)}
-            aria-hidden="true"
-          />
-          <div className="md:hidden fixed top-0 left-0 w-64 h-full bg-primary text-primary-foreground z-50 flex flex-col animate-in slide-in-from-left duration-200">
+      <Dialog open={menuOpen} onOpenChange={setMenuOpen}>
+          <DialogContent
+            showCloseButton={false}
+            finalFocus={menuButtonRef}
+            className="top-0 left-0 w-64 h-dvh max-h-dvh translate-x-0 translate-y-0 flex flex-col gap-0 rounded-none p-0 bg-primary text-primary-foreground sm:max-w-64"
+          >
+            <DialogTitle className="sr-only">Admin navigation</DialogTitle>
+            <DialogDescription className="sr-only">Choose an admin page or visit the classroom.</DialogDescription>
             <div className="flex items-center justify-between px-4 py-3">
               <img src="/assets/logo-white.svg" alt="plato" className="h-6 w-auto" />
               <button
@@ -135,9 +146,8 @@ export default function AdminLayout() {
                 </>
               )}
             </div>
-          </div>
-        </>
-      )}
+          </DialogContent>
+      </Dialog>
 
       {/* Desktop: fixed sidebar */}
       <aside
@@ -186,8 +196,8 @@ export default function AdminLayout() {
         </div>
       </aside>
 
-      <main className="flex-1 p-6 md:ml-56">
-        <div className="max-w-4xl pb-4">
+      <main className="min-w-0 flex-1 p-6 md:ml-56">
+        <div className="min-w-0 max-w-4xl pb-4">
           <Outlet />
         </div>
       </main>

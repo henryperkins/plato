@@ -110,11 +110,11 @@ export default function AppShell({ children }) {
         role="banner"
       >
         <nav className="mx-auto max-w-5xl flex items-center gap-2" aria-label="Main navigation">
-          <a href="/lessons" onClick={e => { e.preventDefault(); navigate('/lessons'); }} className="shrink-0" aria-label="Go to lessons list">
+          <a href="/lessons" onClick={e => { e.preventDefault(); navigate('/lessons'); }} className="min-w-0 max-w-[60%]" aria-label="Go to lessons list">
             {classroomLogo ? (
-              <img src={classroomLogo} alt="" className="h-8 w-auto" />
+              <img src={classroomLogo} alt="" className="h-8 w-auto max-w-full object-contain" />
             ) : (
-              <span className="text-sm font-semibold">{classroomName}</span>
+              <span className="block truncate text-sm font-semibold">{classroomName}</span>
             )}
           </a>
           <div className="flex-1" />
@@ -122,7 +122,7 @@ export default function AppShell({ children }) {
             <DropdownMenuRadix.Trigger asChild>
               <button
                 type="button"
-                className="text-inherit opacity-80 hover:opacity-100 hover:bg-white/10 cursor-pointer bg-transparent border-none rounded-md px-3 py-1.5 text-sm font-medium outline-none"
+                className="max-w-[45%] truncate text-inherit opacity-80 hover:opacity-100 hover:bg-white/10 cursor-pointer bg-transparent border-none rounded-md px-3 py-1.5 text-sm font-medium outline-none"
                 aria-label={`Account: ${user?.username || user?.email || 'signed in'}`}
               >
                 {user?.name || user?.username || user?.email || 'Account'}
@@ -132,9 +132,9 @@ export default function AppShell({ children }) {
               <DropdownMenuRadix.Content
                 align="end"
                 sideOffset={4}
-                className="z-50 min-w-[180px] rounded-lg border bg-popover p-1 text-popover-foreground shadow-md"
+                className="z-50 min-w-[180px] max-w-[calc(100vw-2rem)] rounded-lg border bg-popover p-1 text-popover-foreground shadow-md"
               >
-                <DropdownMenuRadix.Label className="px-2 py-1.5 text-xs text-muted-foreground">
+                <DropdownMenuRadix.Label className="px-2 py-1.5 text-xs text-muted-foreground break-all">
                   {user?.email || ''}
                 </DropdownMenuRadix.Label>
                 <DropdownMenuRadix.Separator className="my-1 h-px bg-border" />

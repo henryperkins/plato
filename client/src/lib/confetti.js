@@ -2,6 +2,7 @@
  * Confetti burst — fires when the learner achieves the lesson exemplar.
  */
 export function launchConfetti() {
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
   const colors = ['#fcd34d', '#60a5fa', '#f472b6', '#34d399', '#a78bfa'];
   const count = 60;
   const container = document.getElementById('main-content') || document.body;

@@ -700,9 +700,9 @@ export default function AdminUsers() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-4">
         <h1 className="text-2xl font-bold">Users</h1>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <Button onClick={() => setInviteOpen(true)}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
             Invite Users
@@ -737,7 +737,7 @@ export default function AdminUsers() {
           className="max-w-xs"
           aria-label="Search users"
         />
-        <div className="flex gap-1" role="group" aria-label="Filter users">
+        <div className="flex flex-wrap gap-1" role="group" aria-label="Filter users">
           {filterButtons.map(f => (
             <Button
               key={f.key}
@@ -751,7 +751,7 @@ export default function AdminUsers() {
           ))}
         </div>
         {userFields.length > 0 && (
-          <div className="flex gap-2" role="group" aria-label="Filter by custom field">
+          <div className="flex flex-wrap gap-2 min-w-0" role="group" aria-label="Filter by custom field">
             <select
               aria-label="Custom field"
               value={fieldFilter.fieldId}
@@ -821,7 +821,7 @@ export default function AdminUsers() {
                     </TableCell>
                   </TableRow>
                 ) : (
-                  <TableRow key={item._key} className="cursor-pointer hover:bg-muted/50" onClick={() => openEditUser(item._user)} role="button" tabIndex={0} aria-label={`Edit ${item.name || item.email}`} onKeyDown={e => { if (e.key === 'Enter') openEditUser(item._user); }}>
+                  <TableRow key={item._key} className="cursor-pointer hover:bg-muted/50" onClick={() => openEditUser(item._user)} role="button" tabIndex={0} aria-label={`Edit ${item.name || item.email}`} onKeyDown={e => { if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); openEditUser(item._user); } }}>
                     <TableCell>{item.name}</TableCell>
                     <TableCell>{item.email}</TableCell>
                     <TableCell>{item.username || <span className="text-muted-foreground">&mdash;</span>}</TableCell>

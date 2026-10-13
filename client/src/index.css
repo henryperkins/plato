@@ -135,10 +135,46 @@
     @apply font-sans;
   }
 
-  /* WCAG 2.4.7: Visible focus indicator for keyboard navigation */
-  *:focus-visible {
-    outline: 3px solid hsl(var(--ring));
-    outline-offset: 2px;
+}
+
+/* A visible focus outline also covers controls with an outline-none utility. */
+:focus-visible {
+  outline: 3px solid var(--ring);
+  outline-offset: 2px;
+}
+
+/* Keep desktop density; give touch users real, nonoverlapping hit areas. */
+@media (pointer: coarse) {
+  button, select, [role="menuitem"] {
+    min-inline-size: 44px;
+    min-block-size: 44px;
+  }
+  button:not(.truncate) {
+    max-inline-size: 100%;
+    block-size: auto;
+    white-space: normal;
+  }
+  nav a {
+    display: flex;
+    align-items: center;
+    min-block-size: 44px;
+  }
+  input:not([type="file"]):not([type="checkbox"]):not([type="radio"]):not([type="hidden"]), textarea, select {
+    font-size: 1rem;
+  }
+  input:not([type="file"]):not([type="checkbox"]):not([type="radio"]):not([type="hidden"]) {
+    min-block-size: 44px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-in, .animate-out, .animate-spin {
+    animation: none;
+  }
+  [data-slot="button"], [data-slot="dialog-content"], [data-slot="dialog-overlay"],
+  [data-slot="alert-dialog-content"], [data-slot="alert-dialog-overlay"] {
+    animation: none;
+    transition: none;
   }
 }
 

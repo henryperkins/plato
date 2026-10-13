@@ -306,20 +306,20 @@ export default function ComposeBar({
         <textarea
           ref={inputRef}
           id={inputId}
-          className="w-full resize-none bg-transparent px-3 py-2 text-sm outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50"
+          className="w-full resize-none bg-transparent px-3 py-2 text-base md:text-sm outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50"
           rows={1}
           placeholder={placeholder}
           value={text}
           onChange={(e) => { setText(e.target.value); handleResize(e); }}
           onKeyDown={(e) => {
-            if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); send(); }
+            if (e.key === 'Enter' && !e.nativeEvent.isComposing && (e.metaKey || e.ctrlKey)) { e.preventDefault(); send(); }
           }}
           onPaste={handlePaste}
           disabled={disabled}
         />
         {allowLinks && linkOpen && (
           <div id={linkGroupId} className="mx-2 mb-2 flex flex-col gap-1" role="group" aria-label="Attach a link">
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <label htmlFor={linkInputId} className="sr-only">Link URL</label>
               <input
                 ref={linkInputRef}
@@ -330,13 +330,13 @@ export default function ComposeBar({
                 value={linkValue}
                 onChange={(e) => setLinkValue(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter') { e.preventDefault(); addLink(); }
+                  if (e.key === 'Enter' && !e.nativeEvent.isComposing) { e.preventDefault(); addLink(); }
                   if (e.key === 'Escape') { e.preventDefault(); closeLinkInput('button'); }
                 }}
                 disabled={fetchingLink}
                 aria-describedby={linkError ? `${linkInputId}-err` : undefined}
                 aria-invalid={linkError ? true : undefined}
-                className="flex-1 rounded-md border border-input bg-background px-2 py-1 text-sm outline-none focus:ring-1 focus:ring-ring disabled:opacity-50"
+                className="min-w-0 flex-1 basis-full sm:basis-0 rounded-md border border-input bg-background px-2 py-1 text-base md:text-sm outline-none focus:ring-1 focus:ring-ring disabled:opacity-50"
               />
               <Button variant="default" size="sm" onClick={addLink} disabled={!linkValue.trim() || fetchingLink}>
                 {fetchingLink ? 'Adding…' : 'Add'}

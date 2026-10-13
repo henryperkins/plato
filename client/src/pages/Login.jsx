@@ -39,14 +39,14 @@ export default function Login() {
 
   if (!branding) return null;
 
-  const { primary: headerBg, logo, classroomName } = branding;
+  const { primary: headerBg, foreground, logo, classroomName } = branding;
 
   return (
-    <main className="min-h-dvh flex flex-col items-center justify-center p-4" style={{ backgroundColor: headerBg }}>
+    <main className="min-h-dvh flex flex-col items-center justify-center p-4" style={{ backgroundColor: headerBg, color: foreground }}>
       {logo ? (
         <img src={logo} alt={classroomName} className="h-16 w-16 mb-6 rounded-lg object-contain" />
       ) : (
-        <h1 className="text-2xl font-bold text-white mb-6">{classroomName}</h1>
+        <h1 className="text-2xl font-bold mb-6 break-words max-w-full text-center">{classroomName}</h1>
       )}
       <Card className="w-full max-w-md">
         <CardHeader>
@@ -62,13 +62,13 @@ export default function Login() {
             <Label htmlFor="login-email">Email or Username</Label>
             <Input id="login-email" type="text" placeholder="you@example.com or username" autoComplete="username"
               value={email} onChange={(e) => setEmail(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter') passwordRef.current?.focus(); }} />
+              onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) passwordRef.current?.focus(); }} />
           </div>
           <div className="space-y-2">
             <Label htmlFor="login-password">Password</Label>
             <PasswordField id="login-password" autoComplete="current-password" inputRef={passwordRef}
               value={password} onChange={(e) => setPassword(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter') handleLogin(); }} />
+              onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) handleLogin(); }} />
           </div>
           <Button className="w-full" onClick={handleLogin} disabled={submitting}>
             {submitting ? 'Signing in...' : 'Sign in'}
@@ -78,8 +78,8 @@ export default function Login() {
           <Button variant="link" onClick={() => navigate('/forgot-password')}>Forgot password?</Button>
         </CardFooter>
       </Card>
-      <p className="mt-4 text-xs text-white/60">
-        Powered by <a href="https://github.com/1111philo/plato" target="_blank" rel="noopener noreferrer" className="underline hover:text-white/80">plato</a>.
+      <p className="mt-4 text-xs">
+        Powered by <a href="https://github.com/1111philo/plato" target="_blank" rel="noopener noreferrer" className="underline">plato</a>.
       </p>
     </main>
   );

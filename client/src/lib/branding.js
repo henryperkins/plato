@@ -11,7 +11,12 @@ export function luminance(hex) {
 
 /** Pick white or dark text for readable contrast on a background. */
 export function contrastText(bgHex) {
-  return luminance(bgHex) < 0.4 ? '#ffffff' : '#1a1a1a';
+  const background = luminance(bgHex);
+  const whiteRatio = 1.05 / (background + 0.05);
+  const darkRatio = (background + 0.05) / (luminance('#1a1a1a') + 0.05);
+  if (whiteRatio >= 4.5 && whiteRatio >= darkRatio) return '#ffffff';
+  // Some midtones need black to clear 4.5:1 rather than the usual dark gray.
+  return darkRatio >= 4.5 ? '#1a1a1a' : '#000000';
 }
 
 /** Convert hex to oklch string. */
@@ -100,7 +105,7 @@ export function generateFavicon(logoBase64, primaryColor, classroomName = '') {
     } else {
       // Draw text initial
       const initial = (classroomName || 'P').charAt(0).toUpperCase();
-      const textColor = lum(primaryColor) < 0.4 ? '#ffffff' : '#1a1a1a';
+      const textColor = contrastText(primaryColor);
       ctx.fillStyle = textColor;
       ctx.font = 'bold 20px system-ui, sans-serif';
       ctx.textAlign = 'center';
@@ -109,14 +114,6 @@ export function generateFavicon(logoBase64, primaryColor, classroomName = '') {
       resolve(canvas.toDataURL('image/png'));
     }
   });
-}
-
-function lum(hex) {
-  const r = parseInt(hex.slice(1, 3), 16) / 255;
-  const g = parseInt(hex.slice(3, 5), 16) / 255;
-  const b = parseInt(hex.slice(5, 7), 16) / 255;
-  const lin = (c) => c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
-  return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
 }
 
 /** Set (or restore) the favicon link element. Returns a cleanup function. */

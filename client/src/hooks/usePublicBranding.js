@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { buildThemeVars, generateFavicon, setFavicon } from '../lib/branding.js';
+import { buildThemeVars, generateFavicon, setFavicon, contrastText } from '../lib/branding.js';
 
 /**
  * Fetches classroom branding for public pages (login, signup, forgot/reset password).
@@ -55,6 +55,7 @@ export default function usePublicBranding(pageTitle) {
 
   return {
     primary: branding.theme?.primary || '#8b1a1a',
+    foreground: contrastText(branding.theme?.primary || '#8b1a1a'),
     logo: branding.logoBase64 || null,
     classroomName: branding.classroomName || 'plato',
     theme: branding.theme,

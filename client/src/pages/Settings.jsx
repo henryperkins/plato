@@ -144,9 +144,9 @@ export default function Settings() {
           <CardTitle>Account</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
             <span className="text-sm text-muted-foreground">Email</span>
-            <span className="text-sm">{user?.email || ''}</span>
+            <span className="text-sm break-all">{user?.email || ''}</span>
           </div>
 
           <Separator />
@@ -258,10 +258,12 @@ export default function Settings() {
 function ProfileFeedbackDialog({ open, onOpenChange, onDone }) {
   const [text, setText] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState('');
 
   const handleSubmit = async () => {
-    if (!text.trim()) return;
+    if (!text.trim() || submitting) return;
     setSubmitting(true);
+    setError('');
     try {
       const profile = await ensureProfileExists();
       const result = await orchestrator.updateProfileFromFeedback(profile, text.trim(), {
@@ -278,6 +280,8 @@ function ProfileFeedbackDialog({ open, onOpenChange, onDone }) {
       if (onDone) onDone();
     } catch (e) {
       console.error('[plato] Profile feedback failed:', e?.message || e);
+      setError('Your feedback could not be saved. Your draft is still here; try again.');
+    } finally {
       setSubmitting(false);
     }
   };
@@ -291,6 +295,7 @@ function ProfileFeedbackDialog({ open, onOpenChange, onDone }) {
             Share anything that seems inaccurate or missing -- your device, experience level, learning style, or anything else.
           </DialogDescription>
         </DialogHeader>
+        {error && <p className="text-sm text-destructive" role="alert">{error}</p>}
         <div className="space-y-2">
           <Label htmlFor="profile-feedback-input" className="sr-only">Profile feedback</Label>
           <Textarea
@@ -299,7 +304,7 @@ function ProfileFeedbackDialog({ open, onOpenChange, onDone }) {
             placeholder="e.g. I'm a complete beginner. I use a Chromebook and don't have admin access."
             value={text}
             onChange={(e) => setText(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); handleSubmit(); } }}
+            onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing && (e.metaKey || e.ctrlKey)) { e.preventDefault(); handleSubmit(); } }}
           />
         </div>
         <DialogFooter>

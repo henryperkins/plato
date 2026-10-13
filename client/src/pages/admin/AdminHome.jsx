@@ -298,9 +298,9 @@ export default function AdminHome() {
 
   return (
     <div>
-      <div className="flex items-start justify-between gap-4 mb-1">
+      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 mb-1">
         <h1 className="text-2xl font-bold">Dashboard</h1>
-        <div className="flex items-center gap-3 shrink-0">
+        <div className="flex flex-wrap items-center gap-3">
           {lastUpdated && (
             <span className="text-xs text-muted-foreground" aria-label={`Stats last updated ${lastUpdated}`}>
               Last updated {lastUpdated}

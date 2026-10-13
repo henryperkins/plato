@@ -7,6 +7,7 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 
+import { contrastText } from '../../lib/branding.js';
 import { renderMd } from '../../lib/helpers.js';
 import { converseStream, extractKBMarkdown } from '../../../js/orchestrator.js';
 import { parseResponse, cleanStream, buildConversationText } from '../../lib/lessonCreationEngine.js';
@@ -156,7 +157,7 @@ export default function AdminCustomizer() {
                 </div>
               </div>
               <div className="rounded-lg overflow-hidden border border-border" aria-label="Theme preview">
-                <div className="px-4 py-2 flex items-center gap-2 text-sm" style={{ backgroundColor: primary, color: lum(primary) < 0.4 ? '#fff' : '#1a1a1a' }}>
+                <div className="px-4 py-2 flex items-center gap-2 text-sm" style={{ backgroundColor: primary, color: contrastText(primary) }}>
                   <span className="font-semibold">Header Preview</span>
                   <span className="ml-auto opacity-80">Nav Item</span>
                 </div>
@@ -164,7 +165,7 @@ export default function AdminCustomizer() {
                   <p>Body text on white background.</p>
                   <a href="#" onClick={e => e.preventDefault()} style={{ color: accent }} className="underline">Accent link</a>
                   <div className="flex gap-2 mt-2">
-                    <span className="px-2 py-0.5 rounded text-xs font-medium" style={{ backgroundColor: primary, color: lum(primary) < 0.4 ? '#fff' : '#1a1a1a' }}>Badge</span>
+                    <span className="px-2 py-0.5 rounded text-xs font-medium" style={{ backgroundColor: primary, color: contrastText(primary) }}>Badge</span>
                     <span className="px-2 py-0.5 rounded text-xs font-medium border" style={{ borderColor: accent, color: accent }}>Outline</span>
                   </div>
                 </div>
@@ -186,7 +187,7 @@ export default function AdminCustomizer() {
                 <p className="text-xs text-muted-foreground">Square, at least 512x512px. SVG preferred. If not set, the classroom name is displayed as text.</p>
                 {logoError && <p className="text-sm text-destructive">{logoError}</p>}
               </div>
-              <div className="p-4 rounded-lg text-center" style={{ backgroundColor: primary, color: lum(primary) < 0.4 ? '#fff' : '#1a1a1a' }}>
+              <div className="p-4 rounded-lg text-center" style={{ backgroundColor: primary, color: contrastText(primary) }}>
                 {logoBase64 ? (
                   <img src={logoBase64} alt={classroomName || 'Logo preview'} className="max-h-12 inline-block" />
                 ) : (
@@ -537,12 +538,4 @@ function KBEditor({ initialContent, onSave, onCancel, initialConversation, initi
       </div>
     </div>
   );
-}
-
-function lum(hex) {
-  const r = parseInt(hex.slice(1, 3), 16) / 255;
-  const g = parseInt(hex.slice(3, 5), 16) / 255;
-  const b = parseInt(hex.slice(5, 7), 16) / 255;
-  const lin = (c) => c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
-  return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
 }

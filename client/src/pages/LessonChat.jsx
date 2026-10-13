@@ -230,12 +230,13 @@ export default function LessonChat() {
           ...(hasLinks ? { links: links.map(({ url, title }) => ({ url, title })) } : {}),
         }
       : null;
-    setMessages(prev => [...prev, {
+    const optimisticMessage = {
       role: 'user', content: text || '', msgType: MSG_TYPES.USER,
       phase: LESSON_PHASES.LEARNING,
       metadata: optimisticMeta,
       timestamp: Date.now(),
-    }]);
+    };
+    setMessages(prev => [...prev, optimisticMessage]);
 
     try {
       const result = await engine.sendMessage(
@@ -250,6 +251,10 @@ export default function LessonChat() {
       setLessonKB(freshKB);
     } catch (e) {
       setError(e.message || 'Failed to send.');
+      setComposeText(text || '');
+      setComposeImages((imageDataUrls || []).map((dataUrl, index) => ({ dataUrl, name: `Attached image ${index + 1}` })));
+      setComposeLinks(links || []);
+      setMessages(prev => prev.filter(message => message !== optimisticMessage));
       setStreamingText(null);
       setLoading('');
     }
@@ -381,14 +386,14 @@ export default function LessonChat() {
     <div className="flex flex-col min-h-[calc(100vh-theme(spacing.20))]">
       {/* Fixed header clone — appears when inline header scrolls out of view */}
       {headerPinned && (
-        <div id="lesson-header-pinned" aria-hidden="true" className="fixed top-0 left-0 right-0 z-50 border-b border-border bg-background px-4 py-2 shadow-md">
+        <div id="lesson-header-pinned" className="fixed top-0 left-0 right-0 z-50 border-b border-border bg-background px-4 py-2 shadow-md">
           <div className="mx-auto max-w-5xl flex items-center gap-2">
             <Button variant="ghost" size="icon-sm" aria-label="Back to lessons" onClick={() => navigate('/lessons')}>
               &larr;
             </Button>
             <div className="flex-1 min-w-0">
-              <div className="flex items-center justify-between gap-2">
-                <h1 className="text-sm font-semibold truncate">{lesson.name}</h1>
+              <div className="flex flex-col items-start gap-1 sm:flex-row sm:items-center sm:justify-between">
+                <h1 className="max-w-full text-sm font-semibold truncate">{lesson.name}</h1>
                 <button
                   className="text-xs text-primary hover:underline shrink-0 cursor-pointer"
                   onClick={() => setShowObjectives(true)}
@@ -420,14 +425,14 @@ export default function LessonChat() {
       )}
 
       {/* Inline header — observed for scroll position */}
-      <div ref={headerRef} id="lesson-header" className="border-b border-border bg-background px-4 py-2">
+      <div ref={headerRef} id="lesson-header" inert={headerPinned || undefined} aria-hidden={headerPinned || undefined} className="border-b border-border bg-background px-4 py-2">
         <div className="mx-auto max-w-5xl flex items-center gap-2">
           <Button variant="ghost" size="icon-sm" aria-label="Back to lessons" onClick={() => navigate('/lessons')}>
             &larr;
           </Button>
           <div className="flex-1 min-w-0">
-            <div className="flex items-center justify-between gap-2">
-              <h1 className="text-sm font-semibold truncate">{lesson.name}</h1>
+            <div className="flex flex-col items-start gap-1 sm:flex-row sm:items-center sm:justify-between">
+              <h1 className="max-w-full text-sm font-semibold truncate">{lesson.name}</h1>
               <button
                 className="text-xs text-primary hover:underline shrink-0 cursor-pointer"
                 onClick={() => setShowObjectives(true)}
